@@ -32,6 +32,13 @@ type StoredConversation = {
   createdAt: string;
 };
 
+type OverlayState = {
+  assistantName: string;
+  mode: 'idle' | 'thinking' | 'speaking';
+  lastMessage: string;
+  updatedAt: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -70,11 +77,22 @@ const navItems = [
 
 function Shell({ children }: { children: React.ReactNode }) {
   const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null);
+  const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
 
   useEffect(() => {
     window.vac.shell.getStatus().then(setShellStatus).catch(() => {
       setShellStatus(null);
     });
+
+    window.vac.overlay.getState().then(setOverlayState).catch(() => {
+      setOverlayState(null);
+    });
+
+    const unsubscribe = window.vac.overlay.onStateChange((state) => {
+      setOverlayState(state);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   return (
@@ -94,11 +112,12 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="status-stack">
           <div className="system-card">
             <span className="status-dot" />
-            {shellStatus?.overlayReady ? 'Overlay online' : 'Overlay booting'}
+            {shellStatus?.overlayReady ? `Overlay ${overlayState?.mode ?? 'idle'}` : 'Overlay booting'}
           </div>
           <div className="system-card muted">
             {shellStatus ? `${shellStatus.appName} ${shellStatus.version}` : 'Desktop bridge offline'}
           </div>
+          {overlayState ? <div className="system-card muted">{overlayState.lastMessage}</div> : null}
         </div>
       </aside>
       <main className="page-frame">{children}</main>
@@ -210,10 +229,14 @@ function OnboardingPage() {
 function DashboardPage() {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
 
   useEffect(() => {
     window.vac.profile.load().then(setProfile);
     window.vac.chat.listConversations().then(setConversations);
+    window.vac.overlay.getState().then(setOverlayState);
+    const unsubscribe = window.vac.overlay.onStateChange((state) => setOverlayState(state));
+    return () => unsubscribe();
   }, []);
 
   return (
@@ -221,9 +244,11 @@ function DashboardPage() {
       <MetricGrid
         metrics={[
           ['Provider', profile?.provider ?? 'Not configured'],
-          ['Assistant', profile?.assistantName ?? 'Waiting'],
+          ['Assistant', overlayState?.assistantName ?? profile?.assistantName ?? 'Waiting'],
           ['Conversations', String(conversations.length)],
-          ['Persistence', profile ? 'SQLite live' : 'Pending']
+          ['Overlay mode', overlayState?.mode ?? 'idle'],
+          ['Persistence', profile ? 'SQLite live' : 'Pending'],
+          ['Overlay message', overlayState?.lastMessage ?? 'No activity yet']
         ]}
       />
     </Page>

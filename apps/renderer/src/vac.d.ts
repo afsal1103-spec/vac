@@ -50,6 +50,22 @@ declare global {
           messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
         }>;
       };
+      overlay: {
+        getState(): Promise<{
+          assistantName: string;
+          mode: 'idle' | 'thinking' | 'speaking';
+          lastMessage: string;
+          updatedAt: string;
+        }>;
+        onStateChange(
+          handler: (state: {
+            assistantName: string;
+            mode: 'idle' | 'thinking' | 'speaking';
+            lastMessage: string;
+            updatedAt: string;
+          }) => void
+        ): () => void;
+      };
     };
   }
 }

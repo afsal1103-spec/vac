@@ -24,6 +24,13 @@ type ChatMessage = {
   content: string;
 };
 
+type OverlayState = {
+  assistantName: string;
+  mode: 'idle' | 'thinking' | 'speaking';
+  lastMessage: string;
+  updatedAt: string;
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -46,6 +53,16 @@ const vacApi = {
         reply: string;
         messages: ChatMessage[];
       }>
+  },
+  overlay: {
+    getState: () => ipcRenderer.invoke('vac:overlay-get-state') as Promise<OverlayState>,
+    onStateChange: (handler: (state: OverlayState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: OverlayState) => handler(state);
+      ipcRenderer.on('vac:overlay-state', listener);
+      return () => {
+        ipcRenderer.removeListener('vac:overlay-state', listener);
+      };
+    }
   }
 };
 

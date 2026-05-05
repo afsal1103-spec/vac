@@ -1,0 +1,265 @@
+:root {
+  color: #f8f3e8;
+  background: #10211c;
+  font-family: "Space Grotesk", "Aptos Display", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(240, 184, 91, 0.28), transparent 30rem),
+    radial-gradient(circle at 85% 8%, rgba(64, 130, 109, 0.36), transparent 28rem),
+    linear-gradient(135deg, #10211c 0%, #1b3029 48%, #2d241a 100%);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 2rem;
+  border-right: 1px solid rgba(248, 243, 232, 0.14);
+  background: rgba(12, 28, 24, 0.78);
+  backdrop-filter: blur(20px);
+}
+
+.sidebar h1,
+.page h2 {
+  margin: 0;
+  letter-spacing: -0.06em;
+}
+
+.sidebar h1 {
+  font-size: clamp(3rem, 10vw, 5.5rem);
+}
+
+nav {
+  display: grid;
+  gap: 0.55rem;
+}
+
+nav a {
+  color: rgba(248, 243, 232, 0.68);
+  padding: 0.8rem 1rem;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: 180ms ease;
+}
+
+nav a:hover,
+nav a.active {
+  color: #10211c;
+  background: #f0b85b;
+}
+
+.page-frame {
+  padding: clamp(1rem, 3vw, 3rem);
+}
+
+.page {
+  animation: rise-in 420ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.page h2 {
+  max-width: 920px;
+  font-size: clamp(3rem, 8vw, 7.5rem);
+  line-height: 0.86;
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  color: #f0b85b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.split-grid,
+.metric-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.split-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+}
+
+.metric-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.panel {
+  border: 1px solid rgba(248, 243, 232, 0.16);
+  border-radius: 28px;
+  background: rgba(248, 243, 232, 0.08);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.22);
+}
+
+.form-stack {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+label {
+  display: grid;
+  gap: 0.45rem;
+  color: rgba(248, 243, 232, 0.74);
+}
+
+input,
+select {
+  width: 100%;
+  color: #f8f3e8;
+  border: 1px solid rgba(248, 243, 232, 0.18);
+  border-radius: 18px;
+  background: rgba(5, 15, 13, 0.46);
+  padding: 0.9rem 1rem;
+}
+
+.avatar-preview,
+.metric-card,
+.chat-panel,
+.system-card {
+  padding: 1.25rem;
+}
+
+.avatar-orb {
+  display: grid;
+  place-items: center;
+  width: min(52vw, 240px);
+  aspect-ratio: 1;
+  margin: 0 auto 1.25rem;
+  border-radius: 50%;
+  color: #10211c;
+  font-size: 3rem;
+  font-weight: 900;
+  background:
+    radial-gradient(circle at 35% 25%, #fff2c8, transparent 28%),
+    linear-gradient(145deg, #f0b85b, #40826d 72%);
+}
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.steps span,
+.system-card {
+  border-radius: 999px;
+  background: rgba(248, 243, 232, 0.1);
+  color: rgba(248, 243, 232, 0.72);
+  padding: 0.55rem 0.75rem;
+}
+
+.steps .complete {
+  color: #10211c;
+  background: #f0b85b;
+}
+
+.metric-card {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.metric-card span {
+  color: rgba(248, 243, 232, 0.62);
+}
+
+.metric-card strong {
+  font-size: 1.35rem;
+}
+
+.chat-panel {
+  display: grid;
+  gap: 1rem;
+  max-width: 860px;
+}
+
+.message {
+  max-width: 70%;
+  border-radius: 24px;
+  padding: 1rem;
+}
+
+.message.assistant {
+  background: rgba(240, 184, 91, 0.18);
+}
+
+.message.user {
+  justify-self: end;
+  background: rgba(64, 130, 109, 0.28);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: #77e0a1;
+}
+
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 0.25s;
+  animation-timing-function: cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell,
+  .split-grid,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    padding: 1rem;
+  }
+
+  nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .message {
+    max-width: 100%;
+  }
+}

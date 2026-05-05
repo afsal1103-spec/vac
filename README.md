@@ -1,4 +1,4 @@
-﻿# VAC - Virtual Avatar Companion
+# VAC - Virtual Avatar Companion
 
 VAC is a desktop AI companion with a realistic 3D avatar, streaming voice, local-first memory, offline capabilities, and a guarded self-development workflow.
 
@@ -6,7 +6,7 @@ VAC is a desktop AI companion with a realistic 3D avatar, streaming voice, local
 
 - [x] Phase 0: Repository and dev environment setup
 - [x] Phase 1: Electron shell
-- [ ] Phase 2: React frontend
+- [x] Phase 2: React frontend
 - [ ] Phase 3: 3D avatar engine
 - [ ] Phase 4: Real-time voice engine
 - [ ] Phase 5: AI core and personality engine
@@ -45,3 +45,5 @@ pnpm test
 Phase 0 is verified by `scripts/verify-phase0.mjs`, which checks the workspace manifest, required directories, package manifests, and CI skeleton.
 
 Phase 1 is verified by `scripts/verify-phase1.mjs` plus the `@vac/desktop` TypeScript build. It checks the Electron main process, strict preload bridge, main window, transparent always-on-top overlay window, click-through idle behavior, and macOS microphone permission request hook.
+
+Phase 2 is verified by `scripts/verify-phase2.mjs` plus the `@vac/renderer` TypeScript and Vite production build. It checks the React router page map, onboarding fields, Ready Player Me handoff scaffold, voice selection, provider selection, and core frontend dependencies.

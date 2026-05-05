@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "vac",
   "version": "0.1.0",
   "private": true,
@@ -8,9 +8,10 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @vac/renderer dev",
-    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm --filter @vac/desktop build",
+    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build",
     "verify:phase0": "node scripts/verify-phase0.mjs",
-    "verify:phase1": "node scripts/verify-phase1.mjs"
+    "verify:phase1": "node scripts/verify-phase1.mjs",
+    "verify:phase2": "node scripts/verify-phase2.mjs"
   },
   "engines": {
     "node": ">=22.0.0",

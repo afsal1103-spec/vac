@@ -1,4 +1,4 @@
-﻿{
+{
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -6,17 +6,8 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "ignoreDeprecations": "6.0",
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@vac/ai-core": ["packages/ai-core/src/index.ts"],
-      "@vac/avatar-engine": ["packages/avatar-engine/src/index.ts"],
-      "@vac/voice-engine": ["packages/voice-engine/src/index.ts"],
-      "@vac/memory": ["packages/memory/src/index.ts"],
-      "@vac/offline": ["packages/offline/src/index.ts"],
-      "@vac/self-dev": ["packages/self-dev/src/index.ts"]
-    }
+    "resolveJsonModule": true
   }
 }
+

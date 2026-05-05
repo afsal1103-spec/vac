@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, ipcMain, screen, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 

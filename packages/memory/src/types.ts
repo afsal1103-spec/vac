@@ -8,6 +8,20 @@ export type UserRow = {
   createdAt: string;
 };
 
+export type ConversationRow = {
+  id: string;
+  userId: string;
+  title: string;
+  createdAt: string;
+};
+
+export type PersonalityRow = {
+  id: string;
+  userId: string;
+  profileJson: string;
+  createdAt: string;
+};
+
 export type MessageRow = {
   id: string;
   conversationId: string;

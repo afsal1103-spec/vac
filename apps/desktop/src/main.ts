@@ -1,12 +1,14 @@
 import { app, BrowserWindow, ipcMain, screen, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { VacRuntime } from './runtime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
+let runtime: VacRuntime | null = null;
 
 const rendererDevUrl = process.env.VAC_RENDERER_URL;
 
@@ -131,7 +133,33 @@ ipcMain.handle('vac:set-overlay-interactive', (_event, interactive: boolean) => 
   return { interactive };
 });
 
+ipcMain.handle('vac:profile-load', () => runtime?.loadProfile() ?? null);
+
+ipcMain.handle('vac:profile-save', (_event, profile) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.saveProfile(profile);
+});
+
+ipcMain.handle('vac:chat-list-conversations', () => runtime?.listConversations() ?? []);
+
+ipcMain.handle('vac:chat-get-messages', (_event, conversationId: string) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.getConversationMessages(conversationId);
+});
+
+ipcMain.handle('vac:chat-send-message', async (_event, payload) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.sendMessage(payload);
+});
+
 app.whenReady().then(async () => {
+  runtime = new VacRuntime();
   await requestPlatformPermissions();
   await createMainWindow();
   await createOverlayWindow();

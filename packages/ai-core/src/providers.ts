@@ -9,13 +9,58 @@ export interface ProviderAdapter {
 export class OllamaAdapter implements ProviderAdapter {
   readonly provider = 'ollama' as const;
 
-  async *stream(_messages: ChatMessage[], _options: CompletionOptions): AsyncGenerator<CompletionChunk, void, void> {
-    yield { text: '[ollama chunk]', done: false };
-    yield { text: '', done: true };
+  async *stream(messages: ChatMessage[], options: CompletionOptions): AsyncGenerator<CompletionChunk, void, void> {
+    try {
+      const response = await fetch('http://127.0.0.1:11434/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: options.model,
+          messages,
+          stream: false,
+          options: {
+            temperature: options.temperature ?? 0.7,
+            num_predict: options.maxTokens ?? 256
+          }
+        }),
+        signal: options.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ollama request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as {
+        message?: { content?: string };
+      };
+
+      const content = payload.message?.content?.trim() || 'Ollama returned an empty response.';
+      yield { text: content, done: false };
+      yield { text: '', done: true };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown Ollama error';
+      yield { text: `Ollama is unavailable right now. ${detail}`, done: false };
+      yield { text: '', done: true };
+    }
   }
 
   async health(model: string): Promise<RouterHealth> {
-    return { provider: 'ollama', model, online: true, detail: 'Local endpoint reachable (stub)' };
+    try {
+      const response = await fetch('http://127.0.0.1:11434/api/tags');
+      return {
+        provider: 'ollama',
+        model,
+        online: response.ok,
+        detail: response.ok ? 'Local Ollama endpoint reachable' : `Ollama returned ${response.status}`
+      };
+    } catch (error) {
+      return {
+        provider: 'ollama',
+        model,
+        online: false,
+        detail: error instanceof Error ? error.message : 'Unable to reach Ollama'
+      };
+    }
   }
 }
 

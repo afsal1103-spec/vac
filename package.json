@@ -8,10 +8,11 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @vac/renderer dev",
-    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build",
+    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build",
     "verify:phase0": "node scripts/verify-phase0.mjs",
     "verify:phase1": "node scripts/verify-phase1.mjs",
-    "verify:phase2": "node scripts/verify-phase2.mjs"
+    "verify:phase2": "node scripts/verify-phase2.mjs",
+    "verify:phase3": "node scripts/verify-phase3.mjs"
   },
   "engines": {
     "node": ">=22.0.0",

@@ -1,0 +1,18 @@
+﻿{
+  "name": "vac",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VAC - Virtual Avatar Companion desktop AI companion monorepo.",
+  "packageManager": "pnpm@10.33.3",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @vac/renderer dev",
+    "test": "pnpm verify:phase0",
+    "verify:phase0": "node scripts/verify-phase0.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  }
+}

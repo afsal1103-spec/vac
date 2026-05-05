@@ -1,0 +1,11 @@
+﻿{
+  "name": "@vac/self-dev",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "node -e \"console.log('build placeholder: @vac/self-dev')\"",
+    "test": "node -e \"console.log('test placeholder: @vac/self-dev')\""
+  }
+}

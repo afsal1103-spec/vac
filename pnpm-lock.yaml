@@ -1,0 +1,25 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/desktop: {}
+
+  apps/renderer: {}
+
+  packages/ai-core: {}
+
+  packages/avatar-engine: {}
+
+  packages/memory: {}
+
+  packages/offline: {}
+
+  packages/self-dev: {}
+
+  packages/voice-engine: {}

@@ -1,3 +1,6 @@
-export const packageName = '@vac/offline';
-export const packagePhase = 'phase-0-scaffold';
-export const packageDescription = 'offline module scaffold for VAC.';
+export * from './types.js';
+export * from './maps.js';
+export * from './file-agent.js';
+export * from './prefetch.js';
+
+export const offlinePhase = 'phase-7-offline';

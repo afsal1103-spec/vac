@@ -8,14 +8,15 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @vac/renderer dev",
-    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm verify:phase4 && pnpm verify:phase5 && pnpm verify:phase6 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build",
+    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm verify:phase4 && pnpm verify:phase5 && pnpm verify:phase6 && pnpm verify:phase7 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/offline build",
     "verify:phase0": "node scripts/verify-phase0.mjs",
     "verify:phase1": "node scripts/verify-phase1.mjs",
     "verify:phase2": "node scripts/verify-phase2.mjs",
     "verify:phase3": "node scripts/verify-phase3.mjs",
     "verify:phase4": "node scripts/verify-phase4.mjs",
     "verify:phase5": "node scripts/verify-phase5.mjs",
-    "verify:phase6": "node scripts/verify-phase6.mjs"
+    "verify:phase6": "node scripts/verify-phase6.mjs",
+    "verify:phase7": "node scripts/verify-phase7.mjs"
   },
   "engines": {
     "node": ">=22.0.0",

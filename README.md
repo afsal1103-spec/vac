@@ -11,7 +11,7 @@ VAC is a desktop AI companion with a realistic 3D avatar, streaming voice, local
 - [x] Phase 4: Real-time voice engine
 - [x] Phase 5: AI core and personality engine
 - [x] Phase 6: Memory and learning
-- [ ] Phase 7: Offline capabilities
+- [x] Phase 7: Offline capabilities
 - [ ] Phase 8: Self-development engine
 - [ ] Phase 9: Auth and backend
 - [ ] Phase 10: CI/CD and packaging
@@ -55,3 +55,5 @@ Phase 4 is verified by `scripts/verify-phase4.mjs` plus the `@vac/voice-engine` 
 Phase 5 is verified by `scripts/verify-phase5.mjs` plus the `@vac/ai-core` TypeScript build. It checks multi-provider router structure, provider adapters, personality profile and system prompt injection, and self-improvement summarization hooks.
 
 Phase 6 is verified by `scripts/verify-phase6.mjs` plus the `@vac/memory` TypeScript build. It checks SQLite schema coverage, typed store operations, vector similarity search hooks, and retrieval context assembly.
+
+Phase 7 is verified by `scripts/verify-phase7.mjs` plus the `@vac/offline` TypeScript build. It checks map tile estimation and URL planning utilities, user-approved file permission registry, and file agent read/list behavior under grant enforcement.

@@ -9,17 +9,16 @@ importers:
   .: {}
 
   apps/desktop:
-    dependencies:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.2
+        version: 24.12.2
       electron:
         specifier: ^41.5.0
         version: 41.5.0
       electron-builder:
         specifier: ^26.0.12
         version: 26.8.1(electron-builder-squirrel-windows@26.8.1)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.10.2
-        version: 24.12.2
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

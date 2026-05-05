@@ -20,7 +20,10 @@ async function loadMainContent(window: BrowserWindow) {
     return;
   }
 
-  const rendererEntry = join(__dirname, '../../renderer/dist/index.html');
+  const rendererEntry = app.isPackaged
+    ? join(process.resourcesPath, 'renderer', 'index.html')
+    : join(__dirname, '../../renderer/dist/index.html');
+
   await window.loadFile(rendererEntry).catch(async () => {
     await window.loadURL(
       `data:text/html;charset=utf-8,${encodeURIComponent(`

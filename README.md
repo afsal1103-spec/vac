@@ -14,7 +14,7 @@ VAC is a desktop AI companion with a realistic 3D avatar, streaming voice, local
 - [x] Phase 7: Offline capabilities
 - [x] Phase 8: Self-development engine
 - [x] Phase 9: Auth and backend
-- [ ] Phase 10: CI/CD and packaging
+- [x] Phase 10: CI/CD and packaging
 
 ## Workspace Layout
 
@@ -61,3 +61,5 @@ Phase 7 is verified by `scripts/verify-phase7.mjs` plus the `@vac/offline` TypeS
 Phase 8 is verified by `scripts/verify-phase8.mjs` plus the `@vac/self-dev` TypeScript build. It checks proposal creation, vm2-based sandbox execution, approval decision gating, sandbox-only apply flow, and explicit token requirement for production apply hooks.
 
 Phase 9 is verified by `scripts/verify-phase9.mjs` plus the `@vac/backend` TypeScript build. It checks Supabase client configuration, email/password auth service, user profile and conversation summary sync APIs, and local key reference vault behavior.
+
+Phase 10 is verified by `scripts/verify-phase10.mjs`. It checks multi-OS CI coverage, tag/manual release workflow, artifact upload, and the root desktop packaging command that builds the renderer, compiles Electron, and runs electron-builder.

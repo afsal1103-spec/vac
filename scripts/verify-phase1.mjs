@@ -40,8 +40,8 @@ if (desktopPackage.main !== 'dist/main.js') {
   failures.push('Desktop package main must point to dist/main.js.');
 }
 
-if (!desktopPackage.dependencies?.electron) {
-  failures.push('Desktop package must depend on Electron.');
+if (!desktopPackage.dependencies?.electron && !desktopPackage.devDependencies?.electron) {
+  failures.push('Desktop package must include Electron.');
 }
 
 if (failures.length > 0) {

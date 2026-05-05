@@ -5,7 +5,7 @@ VAC is a desktop AI companion with a realistic 3D avatar, streaming voice, local
 ## Phase Status
 
 - [x] Phase 0: Repository and dev environment setup
-- [ ] Phase 1: Electron shell
+- [x] Phase 1: Electron shell
 - [ ] Phase 2: React frontend
 - [ ] Phase 3: 3D avatar engine
 - [ ] Phase 4: Real-time voice engine
@@ -43,3 +43,5 @@ pnpm test
 ## Current Verification
 
 Phase 0 is verified by `scripts/verify-phase0.mjs`, which checks the workspace manifest, required directories, package manifests, and CI skeleton.
+
+Phase 1 is verified by `scripts/verify-phase1.mjs` plus the `@vac/desktop` TypeScript build. It checks the Electron main process, strict preload bridge, main window, transparent always-on-top overlay window, click-through idle behavior, and macOS microphone permission request hook.

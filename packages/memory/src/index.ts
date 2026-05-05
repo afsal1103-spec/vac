@@ -1,3 +1,7 @@
-export const packageName = '@vac/memory';
-export const packagePhase = 'phase-0-scaffold';
-export const packageDescription = 'memory module scaffold for VAC.';
+export * from './types.js';
+export * from './schema.js';
+export * from './sqlite-store.js';
+export * from './vector-store.js';
+export * from './retrieval.js';
+
+export const memoryPhase = 'phase-6-memory';

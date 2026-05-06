@@ -31,6 +31,29 @@ type OverlayState = {
   updatedAt: string;
 };
 
+type VoiceProvider = 'local' | 'deepgram-elevenlabs';
+
+type VoiceSession = {
+  id: string;
+  config: {
+    provider: VoiceProvider;
+    language: string;
+    voiceId: string;
+    enableWordTimestamps: boolean;
+  };
+  createdAt: string;
+};
+
+type VoiceEventPayload = {
+  sessionId: string;
+  event:
+    | { type: 'stt_chunk'; chunk: { text: string; startMs: number; endMs: number; confidence?: number; isFinal: boolean } }
+    | { type: 'llm_chunk'; chunk: { text: string; isFinal: boolean } }
+    | { type: 'tts_chunk'; chunk: { audioBase64: string; sampleRate: number; format: 'wav' | 'pcm_s16le'; text: string; isFinal: boolean } }
+    | { type: 'status'; message: string }
+    | { type: 'error'; message: string };
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -61,6 +84,27 @@ const vacApi = {
       ipcRenderer.on('vac:overlay-state', listener);
       return () => {
         ipcRenderer.removeListener('vac:overlay-state', listener);
+      };
+    }
+  },
+  voice: {
+    startSession: (config: { provider: VoiceProvider; language: string; voiceId: string; enableWordTimestamps: boolean }) =>
+      ipcRenderer.invoke('vac:voice-session-start', config) as Promise<VoiceSession>,
+    stopSession: (sessionId: string) =>
+      ipcRenderer.invoke('vac:voice-session-stop', sessionId) as Promise<{ stopped: boolean }>,
+    pushMicChunk: (payload: { sessionId: string; audioBase64: string }) =>
+      ipcRenderer.invoke('vac:voice-push-mic', payload) as Promise<
+        Array<{ text: string; startMs: number; endMs: number; confidence?: number; isFinal: boolean }>
+      >,
+    speakText: (payload: { sessionId: string; text: string; isFinal: boolean }) =>
+      ipcRenderer.invoke('vac:voice-speak-text', payload) as Promise<
+        Array<{ audioBase64: string; sampleRate: number; format: 'wav' | 'pcm_s16le'; text: string; isFinal: boolean }>
+      >,
+    onEvent: (handler: (payload: VoiceEventPayload) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: VoiceEventPayload) => handler(payload);
+      ipcRenderer.on('vac:voice-event', listener);
+      return () => {
+        ipcRenderer.removeListener('vac:voice-event', listener);
       };
     }
   }

@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, screen, systemPreferences } from 'electron
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { VacRuntime } from './runtime.js';
+import { type PipelineEvent, VoiceRuntime } from './voice-runtime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,6 +11,7 @@ let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let runtime: VacRuntime | null = null;
 let overlayResetTimer: NodeJS.Timeout | null = null;
+let voiceRuntime: VoiceRuntime | null = null;
 
 type OverlayState = {
   assistantName: string;
@@ -107,6 +109,10 @@ function publishOverlayState() {
   mainWindow?.webContents.send('vac:overlay-state', overlayState);
 }
 
+function publishVoiceEvent(sessionId: string, event: PipelineEvent) {
+  mainWindow?.webContents.send('vac:voice-event', { sessionId, event });
+}
+
 function setOverlayState(update: Partial<OverlayState>) {
   Object.assign(overlayState, update, { updatedAt: new Date().toISOString() });
   publishOverlayState();
@@ -191,6 +197,38 @@ ipcMain.handle('vac:set-overlay-interactive', (_event, interactive: boolean) => 
 
 ipcMain.handle('vac:overlay-get-state', () => overlayState);
 
+ipcMain.handle('vac:voice-session-start', (_event, config) => {
+  if (!voiceRuntime) {
+    throw new Error('Voice runtime is not ready.');
+  }
+  return voiceRuntime.startSession(config);
+});
+
+ipcMain.handle('vac:voice-session-stop', (_event, sessionId: string) => {
+  if (!voiceRuntime) {
+    throw new Error('Voice runtime is not ready.');
+  }
+  voiceRuntime.stopSession(sessionId);
+  return { stopped: true };
+});
+
+ipcMain.handle('vac:voice-push-mic', (_event, payload: { sessionId: string; audioBase64: string }) => {
+  if (!voiceRuntime) {
+    throw new Error('Voice runtime is not ready.');
+  }
+  return voiceRuntime.pushMicAudio(payload.sessionId, payload.audioBase64);
+});
+
+ipcMain.handle(
+  'vac:voice-speak-text',
+  (_event, payload: { sessionId: string; text: string; isFinal: boolean }) => {
+    if (!voiceRuntime) {
+      throw new Error('Voice runtime is not ready.');
+    }
+    return voiceRuntime.synthesizeText(payload.sessionId, payload.text, payload.isFinal);
+  }
+);
+
 ipcMain.handle('vac:profile-load', () => runtime?.loadProfile() ?? null);
 
 ipcMain.handle('vac:profile-save', (_event, profile) => {
@@ -244,6 +282,22 @@ ipcMain.handle('vac:chat-send-message', async (_event, payload) => {
 
 app.whenReady().then(async () => {
   runtime = new VacRuntime();
+  voiceRuntime = new VoiceRuntime((sessionId, event: PipelineEvent) => {
+    publishVoiceEvent(sessionId, event);
+
+    if (event.type === 'tts_chunk') {
+      setOverlayState({
+        mode: 'speaking',
+        lastMessage: event.chunk.text.slice(0, 88) || overlayState.lastMessage
+      });
+      if (overlayResetTimer) {
+        clearTimeout(overlayResetTimer);
+      }
+      overlayResetTimer = setTimeout(() => {
+        setOverlayState({ mode: 'idle' });
+      }, 900);
+    }
+  });
   const profile = runtime.loadProfile();
   if (profile) {
     setOverlayState({

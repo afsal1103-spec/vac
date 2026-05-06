@@ -44,7 +44,7 @@ pnpm test
 
 - [x] MVP 1: Local onboarding, SQLite profile save, local conversation persistence, Electron IPC chat loop, Ollama-first response path
 - [x] MVP 2: Live overlay avatar state connected to active conversation and profile
-- [ ] MVP 3: Voice capture and playback wired through the desktop runtime
+- [x] MVP 3: Voice capture and playback wired through the desktop runtime
 - [ ] MVP 4: Supabase auth UI and profile sync connected to the backend package
 - [ ] MVP 5: Polished settings, vault management, and desktop runtime smoke coverage
 
@@ -75,3 +75,5 @@ Phase 10 is verified by `scripts/verify-phase10.mjs`. It checks multi-OS CI cove
 MVP 1 is verified by `scripts/verify-mvp1.mjs` plus the standard build and packaging pipeline. It checks the desktop runtime bridge, profile save/load handlers, local conversation messaging path, and the renderer onboarding/chat screens that consume those APIs.
 
 MVP 2 is verified by `scripts/verify-mvp2.mjs` plus the standard build and packaging pipeline. It checks overlay state channels, thinking/speaking transitions during chat, overlay state subscriptions in preload/renderer, and dashboard visibility of live overlay state.
+
+MVP 3 is verified by `scripts/verify-mvp3.mjs` plus the standard build and packaging pipeline. It checks desktop voice session IPC, mic chunk relay from renderer, voice event subscription loop, and TTS chunk playback wiring in chat.

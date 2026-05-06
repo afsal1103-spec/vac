@@ -1,4 +1,4 @@
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { create } from 'zustand';
 
@@ -37,6 +37,17 @@ type OverlayState = {
   mode: 'idle' | 'thinking' | 'speaking';
   lastMessage: string;
   updatedAt: string;
+};
+
+type VoiceSession = {
+  id: string;
+  config: {
+    provider: 'local' | 'deepgram-elevenlabs';
+    language: string;
+    voiceId: string;
+    enableWordTimestamps: boolean;
+  };
+  createdAt: string;
 };
 
 type OnboardingDraft = {
@@ -262,7 +273,15 @@ function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [chatError, setChatError] = useState('');
+  const [voiceSession, setVoiceSession] = useState<VoiceSession | null>(null);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceStatus, setVoiceStatus] = useState('Voice session offline');
+  const [isRecording, setIsRecording] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [isVoicePending, startVoiceTransition] = useTransition();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const voiceSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     window.vac.profile.load().then(setProfile);
@@ -272,6 +291,60 @@ function ChatPage() {
         setActiveConversationId(loaded[0].id);
       }
     });
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    window.vac.voice
+      .startSession({
+        provider: 'local',
+        language: 'en',
+        voiceId: 'calm-studio',
+        enableWordTimestamps: true
+      })
+      .then((session) => {
+        if (!mounted) return;
+        voiceSessionIdRef.current = session.id;
+        setVoiceSession(session);
+        setVoiceStatus('Voice session live');
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setVoiceStatus(error instanceof Error ? error.message : 'Unable to start voice session');
+      });
+
+    const unsubscribe = window.vac.voice.onEvent((payload) => {
+      if (voiceSessionIdRef.current && payload.sessionId !== voiceSessionIdRef.current) return;
+
+      if (payload.event.type === 'status') {
+        setVoiceStatus(payload.event.message);
+      } else if (payload.event.type === 'stt_chunk') {
+        setVoiceTranscript(payload.event.chunk.text);
+      } else if (payload.event.type === 'tts_chunk') {
+        const source = `data:audio/wav;base64,${payload.event.chunk.audioBase64}`;
+        const audio = new Audio(source);
+        void audio.play().catch(() => {
+          setVoiceStatus('Audio playback blocked by browser policy');
+        });
+      } else if (payload.event.type === 'error') {
+        setVoiceStatus(payload.event.message);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      if (voiceSessionIdRef.current) {
+        void window.vac.voice.stopSession(voiceSessionIdRef.current).catch(() => undefined);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -293,6 +366,13 @@ function ChatPage() {
       window.vac.chat
         .sendMessage({ conversationId: activeConversationId ?? undefined, content })
         .then((result) => {
+          if (voiceSession) {
+            void window.vac.voice.speakText({
+              sessionId: voiceSession.id,
+              text: result.reply,
+              isFinal: true
+            });
+          }
           setActiveConversationId(result.conversationId);
           setMessages(result.messages);
           return window.vac.chat.listConversations();
@@ -301,6 +381,58 @@ function ChatPage() {
         .catch((error) => {
           setChatError(error instanceof Error ? error.message : 'Unable to send message');
           setDraft(content);
+        });
+    });
+  }
+
+  async function blobToBase64(blob: Blob): Promise<string> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    return dataUrl.split(',')[1] ?? '';
+  }
+
+  function toggleRecording() {
+    if (!voiceSession) {
+      setVoiceStatus('Voice session is not ready yet.');
+      return;
+    }
+
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      setIsRecording(false);
+      return;
+    }
+
+    startVoiceTransition(() => {
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          mediaStreamRef.current = stream;
+          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          mediaRecorderRef.current = recorder;
+
+          recorder.ondataavailable = (event) => {
+            if (!event.data || event.data.size === 0) return;
+            void blobToBase64(event.data).then((base64) => {
+              if (!voiceSession || !base64) return;
+              void window.vac.voice.pushMicChunk({ sessionId: voiceSession.id, audioBase64: base64 });
+            });
+          };
+
+          recorder.start(350);
+          setIsRecording(true);
+          setVoiceStatus('Recording microphone');
+        })
+        .catch((error) => {
+          setVoiceStatus(error instanceof Error ? error.message : 'Microphone access denied');
         });
     });
   }
@@ -338,7 +470,12 @@ function ChatPage() {
               <p className="inline-note">
                 {profile ? `${profile.provider} profile active` : 'Set up onboarding to unlock chat'}
               </p>
+              <p className="inline-note">{voiceStatus}</p>
+              {voiceTranscript ? <p className="inline-note">Mic text: {voiceTranscript}</p> : null}
             </div>
+            <button className="primary-button" type="button" onClick={toggleRecording} disabled={isVoicePending || !voiceSession}>
+              {isRecording ? 'Stop mic' : 'Start mic'}
+            </button>
           </div>
           <div className="chat-transcript">
             {messages.length === 0 ? (

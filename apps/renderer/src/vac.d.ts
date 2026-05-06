@@ -66,6 +66,50 @@ declare global {
           }) => void
         ): () => void;
       };
+      voice: {
+        startSession(config: {
+          provider: 'local' | 'deepgram-elevenlabs';
+          language: string;
+          voiceId: string;
+          enableWordTimestamps: boolean;
+        }): Promise<{
+          id: string;
+          config: {
+            provider: 'local' | 'deepgram-elevenlabs';
+            language: string;
+            voiceId: string;
+            enableWordTimestamps: boolean;
+          };
+          createdAt: string;
+        }>;
+        stopSession(sessionId: string): Promise<{ stopped: boolean }>;
+        pushMicChunk(payload: {
+          sessionId: string;
+          audioBase64: string;
+        }): Promise<Array<{ text: string; startMs: number; endMs: number; confidence?: number; isFinal: boolean }>>;
+        speakText(payload: {
+          sessionId: string;
+          text: string;
+          isFinal: boolean;
+        }): Promise<Array<{ audioBase64: string; sampleRate: number; format: 'wav' | 'pcm_s16le'; text: string; isFinal: boolean }>>;
+        onEvent(
+          handler: (payload: {
+            sessionId: string;
+            event:
+              | {
+                  type: 'stt_chunk';
+                  chunk: { text: string; startMs: number; endMs: number; confidence?: number; isFinal: boolean };
+                }
+              | { type: 'llm_chunk'; chunk: { text: string; isFinal: boolean } }
+              | {
+                  type: 'tts_chunk';
+                  chunk: { audioBase64: string; sampleRate: number; format: 'wav' | 'pcm_s16le'; text: string; isFinal: boolean };
+                }
+              | { type: 'status'; message: string }
+              | { type: 'error'; message: string };
+          }) => void
+        ): () => void;
+      };
     };
   }
 }

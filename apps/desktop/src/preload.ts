@@ -98,6 +98,20 @@ type VaultKeyRef = {
   createdAt: string;
 };
 
+type DirectoryGrant = {
+  id: string;
+  path: string;
+  grantedAt: string;
+  reason: string;
+};
+
+type FileSummary = {
+  path: string;
+  sizeBytes: number;
+  lastModifiedIso: string;
+  excerpt: string;
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -184,6 +198,21 @@ const vacApi = {
     set: (payload: { provider: string; keyAlias: string; secret: string }) =>
       ipcRenderer.invoke('vac:vault-set', payload) as Promise<{ ref: VaultKeyRef }>,
     remove: (id: string) => ipcRenderer.invoke('vac:vault-remove', id) as Promise<{ removed: boolean }>
+  },
+  offline: {
+    listGrants: () => ipcRenderer.invoke('vac:offline-list-grants') as Promise<DirectoryGrant[]>,
+    pickAndGrant: (reason: string) =>
+      ipcRenderer.invoke('vac:offline-pick-and-grant', { reason }) as Promise<{ granted: DirectoryGrant | null }>,
+    revokeGrant: (grantId: string) =>
+      ipcRenderer.invoke('vac:offline-revoke-grant', grantId) as Promise<{ removed: boolean }>,
+    listFiles: (directoryPath: string) =>
+      ipcRenderer.invoke('vac:offline-list-files', directoryPath) as Promise<string[]>,
+    searchFiles: (payload: { directoryPath: string; query: string; maxResults?: number }) =>
+      ipcRenderer.invoke('vac:offline-search-files', payload) as Promise<FileSummary[]>,
+    summarizeFile: (payload: { filePath: string; maxChars?: number }) =>
+      ipcRenderer.invoke('vac:offline-summarize-file', payload) as Promise<FileSummary>,
+    getChatContext: () => ipcRenderer.invoke('vac:offline-get-chat-context') as Promise<string[]>,
+    setChatContext: (paths: string[]) => ipcRenderer.invoke('vac:offline-set-chat-context', paths) as Promise<string[]>
   }
 };
 

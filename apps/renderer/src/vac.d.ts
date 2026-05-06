@@ -251,6 +251,38 @@ declare global {
         }>;
         remove(id: string): Promise<{ removed: boolean }>;
       };
+      offline: {
+        listGrants(): Promise<Array<{
+          id: string;
+          path: string;
+          grantedAt: string;
+          reason: string;
+        }>>;
+        pickAndGrant(reason: string): Promise<{
+          granted: {
+            id: string;
+            path: string;
+            grantedAt: string;
+            reason: string;
+          } | null;
+        }>;
+        revokeGrant(grantId: string): Promise<{ removed: boolean }>;
+        listFiles(directoryPath: string): Promise<string[]>;
+        searchFiles(payload: { directoryPath: string; query: string; maxResults?: number }): Promise<Array<{
+          path: string;
+          sizeBytes: number;
+          lastModifiedIso: string;
+          excerpt: string;
+        }>>;
+        summarizeFile(payload: { filePath: string; maxChars?: number }): Promise<{
+          path: string;
+          sizeBytes: number;
+          lastModifiedIso: string;
+          excerpt: string;
+        }>;
+        getChatContext(): Promise<string[]>;
+        setChatContext(paths: string[]): Promise<string[]>;
+      };
     };
   }
 }

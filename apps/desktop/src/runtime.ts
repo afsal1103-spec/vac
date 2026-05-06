@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AiRouter, DEFAULT_PERSONALITY, mergePersonalityProfile, type AiProvider, type RouterHealth } from '@vac/ai-core';
 import { buildMemoryContext, InMemoryVectorStore } from '@vac/memory';
+import { FileAgent, FilePermissionRegistry, type DirectoryGrant, type FileSummary } from '@vac/offline';
+import { readdirSync, statSync, readFileSync } from 'node:fs';
 import type { CloudRuntime } from './cloud-runtime.js';
 
 type Provider = 'ollama' | 'openrouter' | 'openai' | 'anthropic';
@@ -77,9 +79,17 @@ type MemorySummaryRow = {
   updatedAt: string;
 };
 
+type OfflineGrantRow = {
+  id: string;
+  path: string;
+  grantedAt: string;
+  reason: string;
+};
+
 const DEFAULT_USER_ID = 'local-user';
 const DEFAULT_PERSONALITY_ID = 'local-personality';
 const AI_RUNTIME_CONFIG_KEY = 'ai_runtime_config';
+const FILE_CONTEXT_PATHS_KEY = 'file_context_paths';
 const AVAILABLE_PROVIDERS: Provider[] = ['ollama', 'openrouter', 'openai', 'anthropic'];
 const UNAVAILABLE_REPLY_HINTS = ['unavailable right now', 'request failed', 'returned an empty response'];
 
@@ -141,18 +151,30 @@ CREATE TABLE IF NOT EXISTS memory_summaries (
   summary TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS offline_grants (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  reason TEXT NOT NULL
+);
 `;
 
 export class VacRuntime {
   private readonly db = new Database(join(app.getPath('userData'), 'vac.sqlite'));
   private readonly aiRouter = new AiRouter();
   private readonly vectorStore = new InMemoryVectorStore();
+  private readonly permissions = new FilePermissionRegistry();
+  private readonly fileAgent = new FileAgent(this.permissions);
   private cloudRuntime: CloudRuntime | null = null;
   private lastMemoryContext: MemoryContextSnapshot | null = null;
+  private activeFileContextPaths: string[] = [];
 
   constructor() {
     this.db.pragma('journal_mode = WAL');
     this.db.exec(SQLITE_SCHEMA);
+    this.hydrateOfflineGrants();
+    this.activeFileContextPaths = this.loadFileContextPaths();
     void this.hydrateMemoryIndex();
   }
 
@@ -316,6 +338,100 @@ export class VacRuntime {
     return this.lastMemoryContext;
   }
 
+  listOfflineGrants(): DirectoryGrant[] {
+    return this.permissions.list();
+  }
+
+  grantOfflineDirectory(directoryPath: string, reason: string): DirectoryGrant {
+    const grant = this.permissions.grant(directoryPath, reason);
+    this.db
+      .prepare(
+        `
+          INSERT INTO offline_grants (id, path, granted_at, reason)
+          VALUES (@id, @path, @grantedAt, @reason)
+          ON CONFLICT(id) DO UPDATE SET path = excluded.path, granted_at = excluded.granted_at, reason = excluded.reason
+        `
+      )
+      .run(grant);
+    return grant;
+  }
+
+  revokeOfflineGrant(grantId: string): { removed: boolean } {
+    const removed = this.permissions.revoke(grantId);
+    if (removed) {
+      this.db.prepare('DELETE FROM offline_grants WHERE id = ?').run(grantId);
+      const filtered = this.activeFileContextPaths.filter((filePath) => this.isPathAllowed(filePath));
+      this.activeFileContextPaths = filtered;
+      this.saveFileContextPaths(filtered);
+    }
+    return { removed };
+  }
+
+  listOfflineFiles(directoryPath: string): string[] {
+    return this.fileAgent
+      .listFiles(directoryPath)
+      .filter((filePath) => {
+        try {
+          return statSync(filePath).isFile();
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 500);
+  }
+
+  searchOfflineFiles(directoryPath: string, query: string, maxResults = 20): FileSummary[] {
+    this.permissions.assertPathAllowed(directoryPath);
+    const normalizedQuery = query.trim().toLowerCase();
+    const files = this.walkFiles(directoryPath, 4, 800);
+    const results: FileSummary[] = [];
+
+    for (const filePath of files) {
+      if (results.length >= maxResults) break;
+      try {
+        const stats = statSync(filePath);
+        if (!stats.isFile()) continue;
+        const content = stats.size <= 1024 * 1024 ? readFileSync(filePath, 'utf8') : '';
+        const haystack = `${filePath.toLowerCase()}\n${content.toLowerCase()}`;
+        if (!normalizedQuery || haystack.includes(normalizedQuery)) {
+          results.push({
+            path: filePath,
+            sizeBytes: stats.size,
+            lastModifiedIso: stats.mtime.toISOString(),
+            excerpt: content.slice(0, 240)
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return results;
+  }
+
+  summarizeOfflineFile(filePath: string, maxChars = 500): FileSummary {
+    return this.fileAgent.summarizeFile(filePath, maxChars);
+  }
+
+  getChatFileContextPaths(): string[] {
+    return [...this.activeFileContextPaths];
+  }
+
+  setChatFileContextPaths(paths: string[]): string[] {
+    const deduped = Array.from(new Set(paths.map((item) => item.trim()).filter(Boolean))).slice(0, 8);
+    const validated = deduped.filter((filePath) => {
+      try {
+        this.permissions.assertPathAllowed(filePath);
+        return statSync(filePath).isFile();
+      } catch {
+        return false;
+      }
+    });
+    this.activeFileContextPaths = validated;
+    this.saveFileContextPaths(validated);
+    return [...this.activeFileContextPaths];
+  }
+
   getConversationMessages(conversationId: string): ChatMessage[] {
     return (
       this.db
@@ -461,9 +577,15 @@ export class VacRuntime {
       voiceId: profile.voice
     });
     const memorySnapshot = await this.buildMemorySnapshot(messages[messages.length - 1]?.content ?? '', conversationId);
-    const enrichedMessages = memorySnapshot.hits.length > 0
-      ? [{ role: 'system', content: memorySnapshot.context } as ChatMessage, ...messages]
-      : messages;
+    const injectedSystemMessages: ChatMessage[] = [];
+    const fileContext = this.buildFileContextPrompt();
+    if (fileContext) {
+      injectedSystemMessages.push({ role: 'system', content: fileContext });
+    }
+    if (memorySnapshot.hits.length > 0) {
+      injectedSystemMessages.push({ role: 'system', content: memorySnapshot.context });
+    }
+    const enrichedMessages = injectedSystemMessages.length > 0 ? [...injectedSystemMessages, ...messages] : messages;
     const failures: string[] = [];
 
     for (const provider of providerOrder) {
@@ -686,6 +808,133 @@ export class VacRuntime {
     const latestAssistant = assistantMessages[assistantMessages.length - 1]?.content ?? '';
     const summary = `User asked: ${latestUser.slice(0, 140)} | Assistant answered: ${latestAssistant.slice(0, 180)}`;
     return summary.trim();
+  }
+
+  private hydrateOfflineGrants() {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, path, granted_at as grantedAt, reason
+          FROM offline_grants
+          ORDER BY granted_at ASC
+        `
+      )
+      .all() as OfflineGrantRow[];
+
+    for (const row of rows) {
+      this.permissions.upsertGrant({
+        id: row.id,
+        path: row.path,
+        grantedAt: row.grantedAt,
+        reason: row.reason
+      });
+    }
+  }
+
+  private loadFileContextPaths(): string[] {
+    const row = this.db
+      .prepare(
+        `
+          SELECT value_json as valueJson
+          FROM app_config
+          WHERE key = ?
+          LIMIT 1
+        `
+      )
+      .get(FILE_CONTEXT_PATHS_KEY) as { valueJson: string } | undefined;
+
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.valueJson) as string[];
+      return Array.isArray(parsed) ? parsed.filter((item) => this.isPathAllowed(item)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private saveFileContextPaths(paths: string[]) {
+    this.db
+      .prepare(
+        `
+          INSERT INTO app_config (key, value_json, updated_at)
+          VALUES (@key, @valueJson, @updatedAt)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `
+      )
+      .run({
+        key: FILE_CONTEXT_PATHS_KEY,
+        valueJson: JSON.stringify(paths),
+        updatedAt: new Date().toISOString()
+      });
+  }
+
+  private isPathAllowed(filePath: string): boolean {
+    try {
+      this.permissions.assertPathAllowed(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private walkFiles(rootPath: string, maxDepth: number, maxFiles: number): string[] {
+    const results: string[] = [];
+    const stack: Array<{ path: string; depth: number }> = [{ path: rootPath, depth: 0 }];
+
+    while (stack.length > 0 && results.length < maxFiles) {
+      const current = stack.pop();
+      if (!current) break;
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(current.path);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (results.length >= maxFiles) break;
+        const fullPath = join(current.path, entry);
+        try {
+          const stats = statSync(fullPath);
+          if (stats.isDirectory() && current.depth < maxDepth) {
+            stack.push({ path: fullPath, depth: current.depth + 1 });
+          } else if (stats.isFile()) {
+            results.push(fullPath);
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return results;
+  }
+
+  private buildFileContextPrompt(): string | null {
+    if (this.activeFileContextPaths.length === 0) {
+      return null;
+    }
+
+    const summaries = this.activeFileContextPaths
+      .map((filePath) => {
+        try {
+          return this.summarizeOfflineFile(filePath, 400);
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is FileSummary => Boolean(item))
+      .slice(0, 5);
+
+    if (summaries.length === 0) {
+      return null;
+    }
+
+    const lines = summaries.map(
+      (summary, index) =>
+        `${index + 1}. ${summary.path} (${summary.sizeBytes} bytes): ${summary.excerpt.replace(/\s+/g, ' ').trim()}`
+    );
+
+    return ['User approved the following local files as chat context:', ...lines].join('\n');
   }
 
   private resolveProviderKeys(config: AiRuntimeConfig): Partial<Record<Provider, string>> {

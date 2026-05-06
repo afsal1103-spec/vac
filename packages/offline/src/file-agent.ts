@@ -19,6 +19,15 @@ export class FilePermissionRegistry {
     return grant;
   }
 
+  upsertGrant(grant: DirectoryGrant): DirectoryGrant {
+    const normalized: DirectoryGrant = {
+      ...grant,
+      path: resolve(grant.path)
+    };
+    this.grants.set(normalized.id, normalized);
+    return normalized;
+  }
+
   revoke(grantId: string): boolean {
     return this.grants.delete(grantId);
   }

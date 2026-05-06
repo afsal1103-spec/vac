@@ -51,6 +51,7 @@ pnpm test
 - [x] MVP 7: Real OpenAI/Anthropic/OpenRouter execution with vault-backed key alias routing
 - [x] MVP 8: Live chat chunk streaming and incremental voice playback handoff
 - [x] MVP 9: Retrieval memory context injection, summary compaction, and scored relevance visibility
+- [x] MVP 10: Offline file-agent grants, local file search, and chat file-context injection
 
 ## Current Verification
 
@@ -93,3 +94,5 @@ MVP 7 is verified by `scripts/verify-mvp7.mjs` plus the standard build and packa
 MVP 8 is verified by `scripts/verify-mvp8.mjs` plus the standard build and packaging pipeline. It checks desktop chat stream chunk emission, renderer stream subscriptions, live transcript rendering in Chat, and incremental sentence-based voice handoff.
 
 MVP 9 is verified by `scripts/verify-mvp9.mjs` plus the standard build and packaging pipeline. It checks runtime memory retrieval context assembly, summary compaction storage, memory relevance score exposure through IPC, and chat memory-hit visibility in the renderer.
+
+MVP 10 is verified by `scripts/verify-mvp10.mjs` plus the standard build and packaging pipeline. It checks offline directory grant persistence, desktop file-agent IPC for list/search/summarize, renderer grant and file-context controls, and runtime injection of user-approved local file context into chat prompts.

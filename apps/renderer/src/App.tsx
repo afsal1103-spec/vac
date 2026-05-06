@@ -87,6 +87,20 @@ type MemoryContextSnapshot = {
   generatedAt: string;
 };
 
+type DirectoryGrant = {
+  id: string;
+  path: string;
+  grantedAt: string;
+  reason: string;
+};
+
+type FileSummary = {
+  path: string;
+  sizeBytes: number;
+  lastModifiedIso: string;
+  excerpt: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -317,6 +331,7 @@ function ChatPage() {
   const [streamingReply, setStreamingReply] = useState('');
   const [streamProvider, setStreamProvider] = useState<Provider | null>(null);
   const [memoryContext, setMemoryContext] = useState<MemoryContextSnapshot | null>(null);
+  const [fileContextCount, setFileContextCount] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [isVoicePending, startVoiceTransition] = useTransition();
@@ -335,6 +350,7 @@ function ChatPage() {
       }
     });
     window.vac.memory.getLastContext().then(setMemoryContext).catch(() => setMemoryContext(null));
+    window.vac.offline.getChatContext().then((paths) => setFileContextCount(paths.length)).catch(() => setFileContextCount(0));
   }, []);
 
   useEffect(() => {
@@ -469,6 +485,10 @@ function ChatPage() {
         .then(([loadedConversations, context]) => {
           setConversations(loadedConversations);
           setMemoryContext(context);
+          return window.vac.offline.getChatContext();
+        })
+        .then((paths) => {
+          setFileContextCount(paths.length);
         })
         .catch((error) => {
           setChatError(error instanceof Error ? error.message : 'Unable to send message');
@@ -564,6 +584,7 @@ function ChatPage() {
               </p>
               {streamingReply ? <p className="inline-note">Streaming via {streamProvider ?? profile?.provider ?? 'provider'}</p> : null}
               {memoryContext ? <p className="inline-note">Memory hits: {memoryContext.hits.length}</p> : null}
+              <p className="inline-note">File context: {fileContextCount} files</p>
               <p className="inline-note">{voiceStatus}</p>
               {voiceTranscript ? <p className="inline-note">Mic text: {voiceTranscript}</p> : null}
             </div>
@@ -649,6 +670,12 @@ function SettingsPage() {
   const [vaultAlias, setVaultAlias] = useState('');
   const [vaultSecret, setVaultSecret] = useState('');
   const [vaultRefs, setVaultRefs] = useState<VaultKeyRef[]>([]);
+  const [offlineGrants, setOfflineGrants] = useState<DirectoryGrant[]>([]);
+  const [offlineReason, setOfflineReason] = useState('Local file assistance');
+  const [offlineQuery, setOfflineQuery] = useState('');
+  const [offlineResults, setOfflineResults] = useState<FileSummary[]>([]);
+  const [chatFileContextPaths, setChatFileContextPaths] = useState<string[]>([]);
+  const [activeGrantId, setActiveGrantId] = useState<string>('');
   const [syncMessage, setSyncMessage] = useState('');
   const [isPending, startTransition] = useTransition();
 
@@ -671,6 +698,16 @@ function SettingsPage() {
       });
     });
     window.vac.vault.list().then(setVaultRefs).catch(() => setVaultRefs([]));
+    window.vac.offline
+      .listGrants()
+      .then((grants) => {
+        setOfflineGrants(grants);
+        if (grants[0]) {
+          setActiveGrantId(grants[0].id);
+        }
+      })
+      .catch(() => setOfflineGrants([]));
+    window.vac.offline.getChatContext().then(setChatFileContextPaths).catch(() => setChatFileContextPaths([]));
   }, []);
 
   function updateAiModel(provider: Provider, value: string) {
@@ -811,6 +848,98 @@ function SettingsPage() {
         })
         .catch((error) => {
           setSyncMessage(error instanceof Error ? error.message : 'Unable to load AI health');
+        });
+    });
+  }
+
+  function refreshOfflineGrants() {
+    return window.vac.offline.listGrants().then((grants) => {
+      setOfflineGrants(grants);
+      if (grants.length > 0 && !grants.some((grant) => grant.id === activeGrantId)) {
+        setActiveGrantId(grants[0].id);
+      }
+      if (grants.length === 0) {
+        setActiveGrantId('');
+      }
+    });
+  }
+
+  function pickAndGrantDirectory() {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.offline
+        .pickAndGrant(offlineReason.trim() || 'Local file assistance')
+        .then((result) => {
+          if (!result.granted) {
+            setSyncMessage('Directory picker canceled');
+            return;
+          }
+          setSyncMessage(`Granted ${result.granted.path}`);
+          return refreshOfflineGrants();
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to grant directory');
+        });
+    });
+  }
+
+  function revokeGrant(grantId: string) {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.offline
+        .revokeGrant(grantId)
+        .then(() => Promise.all([refreshOfflineGrants(), window.vac.offline.getChatContext()]))
+        .then(([, context]) => {
+          setChatFileContextPaths(context);
+          setOfflineResults([]);
+          setSyncMessage('Directory access revoked');
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to revoke directory');
+        });
+    });
+  }
+
+  function searchOfflineFiles() {
+    const activeGrant = offlineGrants.find((grant) => grant.id === activeGrantId);
+    if (!activeGrant) {
+      setSyncMessage('Choose a granted directory first');
+      return;
+    }
+
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.offline
+        .searchFiles({
+          directoryPath: activeGrant.path,
+          query: offlineQuery,
+          maxResults: 25
+        })
+        .then((results) => {
+          setOfflineResults(results);
+          setSyncMessage(`Found ${results.length} matching files`);
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Offline search failed');
+        });
+    });
+  }
+
+  function toggleChatFilePath(path: string) {
+    const next = chatFileContextPaths.includes(path)
+      ? chatFileContextPaths.filter((item) => item !== path)
+      : [...chatFileContextPaths, path];
+
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.offline
+        .setChatContext(next)
+        .then((saved) => {
+          setChatFileContextPaths(saved);
+          setSyncMessage(`Chat file context updated (${saved.length} files)`);
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to update file context');
         });
     });
   }
@@ -1027,6 +1156,82 @@ function SettingsPage() {
             )}
           </div>
         </div>
+        <div className="panel form-stack">
+          <div>
+            <h3>Offline file agent (MVP 10)</h3>
+            <p className="inline-note">Grant directory access, search local files, and choose files for chat context.</p>
+          </div>
+          <label>
+            Grant reason
+            <input value={offlineReason} onChange={(event) => setOfflineReason(event.target.value)} placeholder="Local file assistance" />
+          </label>
+          <button className="primary-button" type="button" onClick={pickAndGrantDirectory} disabled={isPending}>
+            Pick and grant directory
+          </button>
+          <label>
+            Granted directory
+            <select value={activeGrantId} onChange={(event) => setActiveGrantId(event.target.value)}>
+              <option value="">Select grant</option>
+              {offlineGrants.map((grant) => (
+                <option key={grant.id} value={grant.id}>
+                  {grant.path}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="vault-list">
+            {offlineGrants.length === 0 ? (
+              <p className="inline-note">No offline directory grants yet.</p>
+            ) : (
+              offlineGrants.map((grant) => (
+                <div key={grant.id} className="vault-row">
+                  <div>
+                    <strong>{grant.path}</strong>
+                    <p className="inline-note">
+                      {grant.reason} - {new Date(grant.grantedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button className="primary-button secondary" type="button" onClick={() => revokeGrant(grant.id)} disabled={isPending}>
+                    Revoke
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <label>
+            Search query
+            <input value={offlineQuery} onChange={(event) => setOfflineQuery(event.target.value)} placeholder="invoice, project, TODO" />
+          </label>
+          <button className="primary-button secondary" type="button" onClick={searchOfflineFiles} disabled={isPending || !activeGrantId}>
+            Search granted files
+          </button>
+          <div className="vault-list">
+            {offlineResults.length === 0 ? (
+              <p className="inline-note">Search results will appear here.</p>
+            ) : (
+              offlineResults.map((item) => (
+                <div key={item.path} className="vault-row">
+                  <div>
+                    <strong>{item.path}</strong>
+                    <p className="inline-note">
+                      {item.sizeBytes} bytes - {new Date(item.lastModifiedIso).toLocaleString()}
+                    </p>
+                    <p className="inline-note">{item.excerpt.slice(0, 120)}</p>
+                  </div>
+                  <button
+                    className="primary-button secondary"
+                    type="button"
+                    onClick={() => toggleChatFilePath(item.path)}
+                    disabled={isPending}
+                  >
+                    {chatFileContextPaths.includes(item.path) ? 'Remove context' : 'Use in chat'}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <p className="inline-note">Active chat file context: {chatFileContextPaths.length} files</p>
+        </div>
         <MetricGrid
           metrics={[
             ['Desktop', shellStatus ? `${shellStatus.appName} ${shellStatus.version}` : 'Desktop bridge offline'],
@@ -1036,7 +1241,9 @@ function SettingsPage() {
             ['Session', cloudStatus?.signedIn ? 'Signed in' : 'Signed out'],
             ['Email', cloudStatus?.email ?? 'None'],
             ['User ID', cloudStatus?.userId ?? 'None'],
-            ['Vault refs', String(vaultRefs.length)]
+            ['Vault refs', String(vaultRefs.length)],
+            ['Offline grants', String(offlineGrants.length)],
+            ['Chat file context', String(chatFileContextPaths.length)]
           ]}
         />
       </section>

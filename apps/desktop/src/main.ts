@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, systemPreferences } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { CloudRuntime } from './cloud-runtime.js';
@@ -334,6 +334,70 @@ ipcMain.handle('vac:memory-last-context', () => {
     throw new Error('VAC runtime is not ready.');
   }
   return runtime.getLastMemoryContext();
+});
+
+ipcMain.handle('vac:offline-list-grants', () => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.listOfflineGrants();
+});
+
+ipcMain.handle('vac:offline-pick-and-grant', async (_event, payload: { reason: string }) => {
+  if (!runtime || !mainWindow) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select directory for offline file access',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { granted: null };
+  }
+  const granted = runtime.grantOfflineDirectory(result.filePaths[0], payload.reason || 'User approved');
+  return { granted };
+});
+
+ipcMain.handle('vac:offline-revoke-grant', (_event, grantId: string) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.revokeOfflineGrant(grantId);
+});
+
+ipcMain.handle('vac:offline-list-files', (_event, directoryPath: string) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.listOfflineFiles(directoryPath);
+});
+
+ipcMain.handle('vac:offline-search-files', (_event, payload: { directoryPath: string; query: string; maxResults?: number }) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.searchOfflineFiles(payload.directoryPath, payload.query, payload.maxResults);
+});
+
+ipcMain.handle('vac:offline-summarize-file', (_event, payload: { filePath: string; maxChars?: number }) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.summarizeOfflineFile(payload.filePath, payload.maxChars);
+});
+
+ipcMain.handle('vac:offline-get-chat-context', () => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.getChatFileContextPaths();
+});
+
+ipcMain.handle('vac:offline-set-chat-context', (_event, paths: string[]) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.setChatFileContextPaths(paths);
 });
 
 ipcMain.handle('vac:chat-get-messages', (_event, conversationId: string) => {

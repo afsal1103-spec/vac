@@ -383,6 +383,10 @@ textarea {
   background: rgba(248, 243, 232, 0.05);
 }
 
+.vault-row strong {
+  overflow-wrap: anywhere;
+}
+
 .status-dot {
   display: inline-block;
   width: 0.6rem;

@@ -9,7 +9,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm --filter @vac/renderer dev",
     "package:desktop": "pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/renderer build && pnpm --filter @vac/desktop build && pnpm --filter @vac/desktop package",
-    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm verify:phase4 && pnpm verify:phase5 && pnpm verify:phase6 && pnpm verify:phase7 && pnpm verify:phase8 && pnpm verify:phase9 && pnpm verify:phase10 && pnpm verify:mvp1 && pnpm verify:mvp2 && pnpm verify:mvp3 && pnpm verify:mvp4 && pnpm verify:mvp5 && pnpm verify:mvp6 && pnpm verify:mvp7 && pnpm verify:mvp8 && pnpm verify:mvp9 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/offline build && pnpm --filter @vac/self-dev build && pnpm --filter @vac/backend build",
+    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm verify:phase4 && pnpm verify:phase5 && pnpm verify:phase6 && pnpm verify:phase7 && pnpm verify:phase8 && pnpm verify:phase9 && pnpm verify:phase10 && pnpm verify:mvp1 && pnpm verify:mvp2 && pnpm verify:mvp3 && pnpm verify:mvp4 && pnpm verify:mvp5 && pnpm verify:mvp6 && pnpm verify:mvp7 && pnpm verify:mvp8 && pnpm verify:mvp9 && pnpm verify:mvp10 && pnpm --filter @vac/desktop build && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/offline build && pnpm --filter @vac/self-dev build && pnpm --filter @vac/backend build",
     "verify:phase0": "node scripts/verify-phase0.mjs",
     "verify:phase1": "node scripts/verify-phase1.mjs",
     "verify:phase2": "node scripts/verify-phase2.mjs",
@@ -29,7 +29,8 @@
     "verify:mvp6": "node scripts/verify-mvp6.mjs",
     "verify:mvp7": "node scripts/verify-mvp7.mjs",
     "verify:mvp8": "node scripts/verify-mvp8.mjs",
-    "verify:mvp9": "node scripts/verify-mvp9.mjs"
+    "verify:mvp9": "node scripts/verify-mvp9.mjs",
+    "verify:mvp10": "node scripts/verify-mvp10.mjs"
   },
   "engines": {
     "node": ">=22.0.0",

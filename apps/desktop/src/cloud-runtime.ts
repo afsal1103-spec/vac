@@ -1,4 +1,7 @@
 import type { AppProfile, StoredConversation } from './runtime.js';
+import { app, safeStorage } from 'electron';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 export type CloudAuthStatus = {
   configured: boolean;
@@ -36,6 +39,18 @@ export type SyncResult = {
   detail: string;
 };
 
+export type VaultKeyRef = {
+  id: string;
+  provider: string;
+  keyAlias: string;
+  createdAt: string;
+};
+
+type VaultFileData = {
+  refs: VaultKeyRef[];
+  secrets: Array<{ id: string; value: string }>;
+};
+
 export class CloudRuntime {
   private readonly supabaseUrl = process.env.VAC_SUPABASE_URL ?? '';
   private readonly supabaseAnonKey = process.env.VAC_SUPABASE_ANON_KEY ?? '';
@@ -43,6 +58,13 @@ export class CloudRuntime {
   private refreshToken: string | null = null;
   private userId: string | null = null;
   private email: string | null = null;
+  private readonly vaultPath = join(app.getPath('userData'), 'vault', 'keys.json');
+  private readonly refs = new Map<string, VaultKeyRef>();
+  private readonly secrets = new Map<string, string>();
+
+  constructor() {
+    this.loadVault();
+  }
 
   getStatus(): CloudAuthStatus {
     const configured = this.isConfigured();
@@ -84,6 +106,42 @@ export class CloudRuntime {
     this.userId = null;
     this.email = null;
     return { status: this.getStatus() };
+  }
+
+  listKeyRefs(): VaultKeyRef[] {
+    return Array.from(this.refs.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  setKey(provider: string, keyAlias: string, secret: string): { ref: VaultKeyRef } {
+    const normalizedProvider = provider.trim().toLowerCase();
+    const normalizedAlias = keyAlias.trim();
+    const normalizedSecret = secret.trim();
+    if (!normalizedProvider || !normalizedAlias || !normalizedSecret) {
+      throw new Error('Provider, alias, and secret are required.');
+    }
+
+    const id = `${normalizedProvider}_${normalizedAlias}`;
+    const createdAt = new Date().toISOString();
+    const ref: VaultKeyRef = {
+      id,
+      provider: normalizedProvider,
+      keyAlias: normalizedAlias,
+      createdAt
+    };
+
+    this.refs.set(id, ref);
+    this.secrets.set(id, normalizedSecret);
+    this.persistVault();
+    return { ref };
+  }
+
+  removeKey(id: string): { removed: boolean } {
+    const removedRef = this.refs.delete(id);
+    const removedSecret = this.secrets.delete(id);
+    if (removedRef || removedSecret) {
+      this.persistVault();
+    }
+    return { removed: removedRef || removedSecret };
   }
 
   async syncSnapshot(snapshot: SyncSnapshot): Promise<SyncResult> {
@@ -197,5 +255,50 @@ export class CloudRuntime {
     if (!this.isConfigured()) {
       throw new Error('Supabase is not configured. Set VAC_SUPABASE_URL and VAC_SUPABASE_ANON_KEY.');
     }
+  }
+
+  private loadVault() {
+    if (!existsSync(this.vaultPath)) {
+      return;
+    }
+
+    const raw = readFileSync(this.vaultPath, 'utf8');
+    const parsed = JSON.parse(raw) as VaultFileData;
+    for (const ref of parsed.refs ?? []) {
+      this.refs.set(ref.id, ref);
+    }
+    for (const row of parsed.secrets ?? []) {
+      this.secrets.set(row.id, this.decodeSecret(row.value));
+    }
+  }
+
+  private persistVault() {
+    mkdirSync(dirname(this.vaultPath), { recursive: true });
+    const payload: VaultFileData = {
+      refs: this.listKeyRefs(),
+      secrets: Array.from(this.secrets.entries()).map(([id, value]) => ({
+        id,
+        value: this.encodeSecret(value)
+      }))
+    };
+    writeFileSync(this.vaultPath, JSON.stringify(payload, null, 2), 'utf8');
+  }
+
+  private encodeSecret(secret: string): string {
+    if (safeStorage.isEncryptionAvailable()) {
+      return `enc:${safeStorage.encryptString(secret).toString('base64')}`;
+    }
+    return `plain:${Buffer.from(secret, 'utf8').toString('base64')}`;
+  }
+
+  private decodeSecret(raw: string): string {
+    if (raw.startsWith('enc:') && safeStorage.isEncryptionAvailable()) {
+      const decoded = Buffer.from(raw.slice(4), 'base64');
+      return safeStorage.decryptString(decoded);
+    }
+    if (raw.startsWith('plain:')) {
+      return Buffer.from(raw.slice(6), 'base64').toString('utf8');
+    }
+    return raw;
   }
 }

@@ -158,6 +158,25 @@ declare global {
           detail: string;
         }>;
       };
+      vault: {
+        list(): Promise<
+          Array<{
+            id: string;
+            provider: string;
+            keyAlias: string;
+            createdAt: string;
+          }>
+        >;
+        set(payload: { provider: string; keyAlias: string; secret: string }): Promise<{
+          ref: {
+            id: string;
+            provider: string;
+            keyAlias: string;
+            createdAt: string;
+          };
+        }>;
+        remove(id: string): Promise<{ removed: boolean }>;
+      };
     };
   }
 }

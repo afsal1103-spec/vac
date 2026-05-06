@@ -363,6 +363,22 @@ textarea {
   margin: 0 0 0.5rem;
 }
 
+.vault-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.vault-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(248, 243, 232, 0.16);
+  border-radius: 14px;
+  background: rgba(248, 243, 232, 0.05);
+}
+
 .status-dot {
   display: inline-block;
   width: 0.6rem;

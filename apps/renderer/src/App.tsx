@@ -58,6 +58,13 @@ type CloudAuthStatus = {
   detail: string;
 };
 
+type VaultKeyRef = {
+  id: string;
+  provider: string;
+  keyAlias: string;
+  createdAt: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -547,13 +554,19 @@ function CustomizePage() {
 }
 
 function SettingsPage() {
+  const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudAuthStatus | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [vaultProvider, setVaultProvider] = useState<Provider>('openai');
+  const [vaultAlias, setVaultAlias] = useState('');
+  const [vaultSecret, setVaultSecret] = useState('');
+  const [vaultRefs, setVaultRefs] = useState<VaultKeyRef[]>([]);
   const [syncMessage, setSyncMessage] = useState('');
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
+    window.vac.shell.getStatus().then(setShellStatus).catch(() => setShellStatus(null));
     window.vac.cloud.getStatus().then(setCloudStatus).catch((error) => {
       setCloudStatus({
         configured: false,
@@ -563,6 +576,7 @@ function SettingsPage() {
         detail: error instanceof Error ? error.message : 'Cloud status unavailable'
       });
     });
+    window.vac.vault.list().then(setVaultRefs).catch(() => setVaultRefs([]));
   }, []);
 
   function runAuth(mode: 'sign-up' | 'sign-in') {
@@ -607,6 +621,40 @@ function SettingsPage() {
     });
   }
 
+  function saveVaultKey() {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.vault
+        .set({ provider: vaultProvider, keyAlias: vaultAlias, secret: vaultSecret })
+        .then(() => window.vac.vault.list())
+        .then((refs) => {
+          setVaultRefs(refs);
+          setVaultAlias('');
+          setVaultSecret('');
+          setSyncMessage('API key reference saved to local vault');
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to save vault key');
+        });
+    });
+  }
+
+  function removeVaultKey(id: string) {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.vault
+        .remove(id)
+        .then(() => window.vac.vault.list())
+        .then((refs) => {
+          setVaultRefs(refs);
+          setSyncMessage('API key reference removed');
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to remove vault key');
+        });
+    });
+  }
+
   return (
     <Page title="Settings" kicker="Provider and runtime visibility">
       <section className="settings-grid">
@@ -639,12 +687,61 @@ function SettingsPage() {
           </button>
           {syncMessage ? <p className="inline-note">{syncMessage}</p> : null}
         </div>
+        <div className="panel form-stack">
+          <div>
+            <h3>Key vault</h3>
+            <p className="inline-note">Store provider key references locally. Secrets stay on this device.</p>
+          </div>
+          <label>
+            Provider
+            <select value={vaultProvider} onChange={(event) => setVaultProvider(event.target.value as Provider)}>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="ollama">Ollama</option>
+            </select>
+          </label>
+          <label>
+            Key alias
+            <input value={vaultAlias} onChange={(event) => setVaultAlias(event.target.value)} placeholder="work-account" />
+          </label>
+          <label>
+            Secret
+            <input value={vaultSecret} onChange={(event) => setVaultSecret(event.target.value)} placeholder="sk-..." type="password" />
+          </label>
+          <button className="primary-button" type="button" onClick={saveVaultKey} disabled={isPending}>
+            Save key reference
+          </button>
+          <div className="vault-list">
+            {vaultRefs.length === 0 ? (
+              <p className="inline-note">No key references saved yet.</p>
+            ) : (
+              vaultRefs.map((ref) => (
+                <div key={ref.id} className="vault-row">
+                  <div>
+                    <strong>{ref.keyAlias}</strong>
+                    <p className="inline-note">
+                      {ref.provider} - {new Date(ref.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button className="primary-button secondary" type="button" onClick={() => removeVaultKey(ref.id)} disabled={isPending}>
+                    Remove
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
         <MetricGrid
           metrics={[
+            ['Desktop', shellStatus ? `${shellStatus.appName} ${shellStatus.version}` : 'Desktop bridge offline'],
+            ['Runtime phase', shellStatus?.phase ?? 'Unknown'],
+            ['Overlay ready', shellStatus?.overlayReady ? 'Yes' : 'No'],
             ['Supabase', cloudStatus?.configured ? 'Configured' : 'Missing env'],
             ['Session', cloudStatus?.signedIn ? 'Signed in' : 'Signed out'],
             ['Email', cloudStatus?.email ?? 'None'],
-            ['User ID', cloudStatus?.userId ?? 'None']
+            ['User ID', cloudStatus?.userId ?? 'None'],
+            ['Vault refs', String(vaultRefs.length)]
           ]}
         />
       </section>

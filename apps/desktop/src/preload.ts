@@ -69,6 +69,13 @@ type SyncResult = {
   detail: string;
 };
 
+type VaultKeyRef = {
+  id: string;
+  provider: string;
+  keyAlias: string;
+  createdAt: string;
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -131,6 +138,12 @@ const vacApi = {
       ipcRenderer.invoke('vac:cloud-sign-in', payload) as Promise<{ status: CloudAuthStatus }>,
     signOut: () => ipcRenderer.invoke('vac:cloud-sign-out') as Promise<{ status: CloudAuthStatus }>,
     syncNow: () => ipcRenderer.invoke('vac:cloud-sync-now') as Promise<SyncResult>
+  },
+  vault: {
+    list: () => ipcRenderer.invoke('vac:vault-list') as Promise<VaultKeyRef[]>,
+    set: (payload: { provider: string; keyAlias: string; secret: string }) =>
+      ipcRenderer.invoke('vac:vault-set', payload) as Promise<{ ref: VaultKeyRef }>,
+    remove: (id: string) => ipcRenderer.invoke('vac:vault-remove', id) as Promise<{ removed: boolean }>
   }
 };
 

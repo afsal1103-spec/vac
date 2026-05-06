@@ -266,6 +266,27 @@ ipcMain.handle('vac:cloud-sync-now', async () => {
   return cloudRuntime.syncSnapshot(runtime.createSyncSnapshot());
 });
 
+ipcMain.handle('vac:vault-list', () => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.listKeyRefs();
+});
+
+ipcMain.handle('vac:vault-set', (_event, payload: { provider: string; keyAlias: string; secret: string }) => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.setKey(payload.provider, payload.keyAlias, payload.secret);
+});
+
+ipcMain.handle('vac:vault-remove', (_event, id: string) => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.removeKey(id);
+});
+
 ipcMain.handle('vac:profile-load', () => runtime?.loadProfile() ?? null);
 
 ipcMain.handle('vac:profile-save', (_event, profile) => {

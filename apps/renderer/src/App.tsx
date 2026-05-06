@@ -101,6 +101,41 @@ type FileSummary = {
   excerpt: string;
 };
 
+type SelfImprovementConfig = {
+  enabled: boolean;
+  intervalMinutes: number;
+};
+
+type SelfImprovementRunLog = {
+  id: string;
+  trigger: 'manual' | 'scheduled';
+  status: 'applied' | 'observed' | 'no_events' | 'failed';
+  startedAt: string;
+  completedAt: string;
+  repeatedCount: number;
+  failedCount: number;
+  correctionCount: number;
+  gapCount: number;
+  detail: string;
+  summary: {
+    gaps: string[];
+    suggestedTraitAdjustments: string[];
+    suggestedKnowledgeDomains: string[];
+  };
+};
+
+type SelfImprovementStatus = {
+  config: SelfImprovementConfig;
+  isRunning: boolean;
+  pendingEventCount: number;
+  totalRunCount: number;
+  lastRunAt: string | null;
+  lastRunStatus: SelfImprovementRunLog['status'] | null;
+  activePatchTraits: string[];
+  activePatchKnowledgeDomains: string[];
+  nextRunAt: string | null;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -676,6 +711,9 @@ function SettingsPage() {
   const [offlineResults, setOfflineResults] = useState<FileSummary[]>([]);
   const [chatFileContextPaths, setChatFileContextPaths] = useState<string[]>([]);
   const [activeGrantId, setActiveGrantId] = useState<string>('');
+  const [selfImprovementStatus, setSelfImprovementStatus] = useState<SelfImprovementStatus | null>(null);
+  const [selfImprovementRuns, setSelfImprovementRuns] = useState<SelfImprovementRunLog[]>([]);
+  const [selfIntervalDraft, setSelfIntervalDraft] = useState('30');
   const [syncMessage, setSyncMessage] = useState('');
   const [isPending, startTransition] = useTransition();
 
@@ -708,6 +746,22 @@ function SettingsPage() {
       })
       .catch(() => setOfflineGrants([]));
     window.vac.offline.getChatContext().then(setChatFileContextPaths).catch(() => setChatFileContextPaths([]));
+    window.vac.selfImprovement
+      .getStatus()
+      .then((status) => {
+        setSelfImprovementStatus(status);
+        setSelfIntervalDraft(String(status.config.intervalMinutes));
+      })
+      .catch(() => setSelfImprovementStatus(null));
+    window.vac.selfImprovement.listRuns(8).then(setSelfImprovementRuns).catch(() => setSelfImprovementRuns([]));
+
+    const unsubscribe = window.vac.selfImprovement.onStatusUpdate((status) => {
+      setSelfImprovementStatus(status);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   function updateAiModel(provider: Provider, value: string) {
@@ -942,6 +996,55 @@ function SettingsPage() {
           setSyncMessage(error instanceof Error ? error.message : 'Unable to update file context');
         });
     });
+  }
+
+  function refreshSelfImprovementRuns() {
+    return window.vac.selfImprovement.listRuns(8).then(setSelfImprovementRuns);
+  }
+
+  function saveSelfImprovementConfig(patch: Partial<SelfImprovementConfig>) {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.selfImprovement
+        .saveConfig(patch)
+        .then((status) => {
+          setSelfImprovementStatus(status);
+          setSelfIntervalDraft(String(status.config.intervalMinutes));
+          setSyncMessage('Self-improvement config saved');
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to save self-improvement config');
+        });
+    });
+  }
+
+  function runSelfImprovementNow() {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.selfImprovement
+        .runNow()
+        .then((result) => {
+          if (result.status) {
+            setSelfImprovementStatus(result.status);
+          }
+          return refreshSelfImprovementRuns().then(() => result.run);
+        })
+        .then((run) => {
+          setSyncMessage(`Self-improvement run ${run.status}: ${run.detail}`);
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Self-improvement run failed');
+        });
+    });
+  }
+
+  function saveSelfImprovementInterval() {
+    const next = Number(selfIntervalDraft);
+    if (!Number.isFinite(next)) {
+      setSyncMessage('Interval must be a number');
+      return;
+    }
+    saveSelfImprovementConfig({ intervalMinutes: next });
   }
 
   return (
@@ -1232,6 +1335,89 @@ function SettingsPage() {
           </div>
           <p className="inline-note">Active chat file context: {chatFileContextPaths.length} files</p>
         </div>
+        <div className="panel form-stack">
+          <div>
+            <h3>Self-improvement loop (MVP 11)</h3>
+            <p className="inline-note">Scheduler, run logs, and adaptive personality patch management.</p>
+          </div>
+          <label>
+            Interval (minutes)
+            <input
+              type="number"
+              min={5}
+              max={240}
+              step={5}
+              value={selfIntervalDraft}
+              onChange={(event) => setSelfIntervalDraft(event.target.value)}
+            />
+          </label>
+          <div className="form-actions wrap">
+            <button className="primary-button" type="button" onClick={saveSelfImprovementInterval} disabled={isPending}>
+              Save interval
+            </button>
+            <button
+              className="primary-button secondary"
+              type="button"
+              onClick={() => saveSelfImprovementConfig({ enabled: !(selfImprovementStatus?.config.enabled ?? true) })}
+              disabled={isPending}
+            >
+              {selfImprovementStatus?.config.enabled ? 'Pause loop' : 'Resume loop'}
+            </button>
+            <button className="primary-button secondary" type="button" onClick={runSelfImprovementNow} disabled={isPending}>
+              Run now
+            </button>
+          </div>
+          <div className="vault-list">
+            <div className="vault-row">
+              <div>
+                <strong>Loop state</strong>
+                <p className="inline-note">
+                  {selfImprovementStatus?.config.enabled ? 'Active' : 'Paused'} | pending events:{' '}
+                  {selfImprovementStatus?.pendingEventCount ?? 0}
+                </p>
+                <p className="inline-note">
+                  Next run:{' '}
+                  {selfImprovementStatus?.nextRunAt ? new Date(selfImprovementStatus.nextRunAt).toLocaleString() : 'Not scheduled'}
+                </p>
+              </div>
+              <span className="inline-note">{selfImprovementStatus?.isRunning ? 'Running' : 'Idle'}</span>
+            </div>
+            <div className="vault-row">
+              <div>
+                <strong>Adaptive traits</strong>
+                <p className="inline-note">
+                  {(selfImprovementStatus?.activePatchTraits ?? []).slice(0, 6).join(', ') || 'No traits patched yet'}
+                </p>
+              </div>
+            </div>
+            <div className="vault-row">
+              <div>
+                <strong>Adaptive domains</strong>
+                <p className="inline-note">
+                  {(selfImprovementStatus?.activePatchKnowledgeDomains ?? []).slice(0, 6).join(', ') || 'No domains patched yet'}
+                </p>
+              </div>
+            </div>
+            {selfImprovementRuns.length === 0 ? (
+              <p className="inline-note">No self-improvement runs yet.</p>
+            ) : (
+              selfImprovementRuns.map((run) => (
+                <div key={run.id} className="vault-row">
+                  <div>
+                    <strong>
+                      {run.status} ({run.trigger})
+                    </strong>
+                    <p className="inline-note">
+                      rep:{run.repeatedCount} fail:{run.failedCount} corr:{run.correctionCount} gaps:{run.gapCount}
+                    </p>
+                    <p className="inline-note">{run.detail}</p>
+                  </div>
+                  <span className="inline-note">{new Date(run.completedAt).toLocaleString()}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
         <MetricGrid
           metrics={[
             ['Desktop', shellStatus ? `${shellStatus.appName} ${shellStatus.version}` : 'Desktop bridge offline'],
@@ -1243,7 +1429,9 @@ function SettingsPage() {
             ['User ID', cloudStatus?.userId ?? 'None'],
             ['Vault refs', String(vaultRefs.length)],
             ['Offline grants', String(offlineGrants.length)],
-            ['Chat file context', String(chatFileContextPaths.length)]
+            ['Chat file context', String(chatFileContextPaths.length)],
+            ['Self loop', selfImprovementStatus?.config.enabled ? 'Active' : 'Paused'],
+            ['Pending improve events', String(selfImprovementStatus?.pendingEventCount ?? 0)]
           ]}
         />
       </section>

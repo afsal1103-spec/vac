@@ -14,6 +14,8 @@ let runtime: VacRuntime | null = null;
 let cloudRuntime: CloudRuntime | null = null;
 let overlayResetTimer: NodeJS.Timeout | null = null;
 let voiceRuntime: VoiceRuntime | null = null;
+let selfImprovementTimer: NodeJS.Timeout | null = null;
+let selfImprovementNextRunAt: string | null = null;
 
 type OverlayState = {
   assistantName: string;
@@ -119,9 +121,54 @@ function publishChatStream(payload: { conversationId: string; text: string; done
   mainWindow?.webContents.send('vac:chat-stream', payload);
 }
 
+function publishSelfImprovementStatus() {
+  if (!runtime) return;
+  const status = {
+    ...runtime.getSelfImprovementStatus(),
+    nextRunAt: selfImprovementNextRunAt
+  };
+  mainWindow?.webContents.send('vac:self-improvement-status-update', status);
+}
+
 function setOverlayState(update: Partial<OverlayState>) {
   Object.assign(overlayState, update, { updatedAt: new Date().toISOString() });
   publishOverlayState();
+}
+
+function clearSelfImprovementSchedule() {
+  if (selfImprovementTimer) {
+    clearTimeout(selfImprovementTimer);
+    selfImprovementTimer = null;
+  }
+  selfImprovementNextRunAt = null;
+}
+
+function scheduleSelfImprovement(configOverride?: { enabled: boolean; intervalMinutes: number }) {
+  if (!runtime) return;
+  const config = configOverride ?? runtime.loadSelfImprovementConfig();
+  clearSelfImprovementSchedule();
+  if (!config.enabled) {
+    publishSelfImprovementStatus();
+    return;
+  }
+
+  const intervalMs = config.intervalMinutes * 60 * 1000;
+  selfImprovementNextRunAt = new Date(Date.now() + intervalMs).toISOString();
+  selfImprovementTimer = setTimeout(() => {
+    void runSelfImprovementCycle('scheduled');
+  }, intervalMs);
+  publishSelfImprovementStatus();
+}
+
+async function runSelfImprovementCycle(trigger: 'manual' | 'scheduled') {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+
+  const run = runtime.runSelfImprovementNow(trigger);
+  scheduleSelfImprovement(runtime.loadSelfImprovementConfig());
+  publishSelfImprovementStatus();
+  return run;
 }
 
 async function requestPlatformPermissions() {
@@ -336,6 +383,48 @@ ipcMain.handle('vac:memory-last-context', () => {
   return runtime.getLastMemoryContext();
 });
 
+ipcMain.handle('vac:self-improvement-status', () => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return {
+    ...runtime.getSelfImprovementStatus(),
+    nextRunAt: selfImprovementNextRunAt
+  };
+});
+
+ipcMain.handle('vac:self-improvement-config-save', (_event, payload: { enabled?: boolean; intervalMinutes?: number }) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  const config = runtime.saveSelfImprovementConfig(payload);
+  scheduleSelfImprovement(config);
+  return {
+    ...runtime.getSelfImprovementStatus(),
+    nextRunAt: selfImprovementNextRunAt
+  };
+});
+
+ipcMain.handle('vac:self-improvement-run-now', async () => {
+  const run = await runSelfImprovementCycle('manual');
+  return {
+    run,
+    status: runtime
+      ? {
+          ...runtime.getSelfImprovementStatus(),
+          nextRunAt: selfImprovementNextRunAt
+        }
+      : null
+  };
+});
+
+ipcMain.handle('vac:self-improvement-list-runs', (_event, limit?: number) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.listSelfImprovementRuns(limit);
+});
+
 ipcMain.handle('vac:offline-list-grants', () => {
   if (!runtime) {
     throw new Error('VAC runtime is not ready.');
@@ -440,6 +529,7 @@ app.whenReady().then(async () => {
   runtime = new VacRuntime();
   cloudRuntime = new CloudRuntime();
   runtime.attachCloudRuntime(cloudRuntime);
+  scheduleSelfImprovement(runtime.loadSelfImprovementConfig());
   voiceRuntime = new VoiceRuntime((sessionId, event: PipelineEvent) => {
     publishVoiceEvent(sessionId, event);
 
@@ -468,6 +558,7 @@ app.whenReady().then(async () => {
   await createMainWindow();
   await createOverlayWindow();
   publishOverlayState();
+  publishSelfImprovementStatus();
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -479,6 +570,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    clearSelfImprovementSchedule();
     app.quit();
   }
 });

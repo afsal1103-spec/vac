@@ -112,6 +112,41 @@ type FileSummary = {
   excerpt: string;
 };
 
+type SelfImprovementConfig = {
+  enabled: boolean;
+  intervalMinutes: number;
+};
+
+type SelfImprovementRunLog = {
+  id: string;
+  trigger: 'manual' | 'scheduled';
+  status: 'applied' | 'observed' | 'no_events' | 'failed';
+  startedAt: string;
+  completedAt: string;
+  repeatedCount: number;
+  failedCount: number;
+  correctionCount: number;
+  gapCount: number;
+  detail: string;
+  summary: {
+    gaps: string[];
+    suggestedTraitAdjustments: string[];
+    suggestedKnowledgeDomains: string[];
+  };
+};
+
+type SelfImprovementStatus = {
+  config: SelfImprovementConfig;
+  isRunning: boolean;
+  pendingEventCount: number;
+  totalRunCount: number;
+  lastRunAt: string | null;
+  lastRunStatus: SelfImprovementRunLog['status'] | null;
+  activePatchTraits: string[];
+  activePatchKnowledgeDomains: string[];
+  nextRunAt: string | null;
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -152,6 +187,24 @@ const vacApi = {
   },
   memory: {
     getLastContext: () => ipcRenderer.invoke('vac:memory-last-context') as Promise<MemoryContextSnapshot | null>
+  },
+  selfImprovement: {
+    getStatus: () => ipcRenderer.invoke('vac:self-improvement-status') as Promise<SelfImprovementStatus>,
+    saveConfig: (config: Partial<SelfImprovementConfig>) =>
+      ipcRenderer.invoke('vac:self-improvement-config-save', config) as Promise<SelfImprovementStatus>,
+    runNow: () =>
+      ipcRenderer.invoke('vac:self-improvement-run-now') as Promise<{
+        run: SelfImprovementRunLog;
+        status: SelfImprovementStatus | null;
+      }>,
+    listRuns: (limit?: number) => ipcRenderer.invoke('vac:self-improvement-list-runs', limit) as Promise<SelfImprovementRunLog[]>,
+    onStatusUpdate: (handler: (status: SelfImprovementStatus) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: SelfImprovementStatus) => handler(status);
+      ipcRenderer.on('vac:self-improvement-status-update', listener);
+      return () => {
+        ipcRenderer.removeListener('vac:self-improvement-status-update', listener);
+      };
+    }
   },
   overlay: {
     getState: () => ipcRenderer.invoke('vac:overlay-get-state') as Promise<OverlayState>,

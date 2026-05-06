@@ -124,6 +124,103 @@ declare global {
           generatedAt: string;
         } | null>;
       };
+      selfImprovement: {
+        getStatus(): Promise<{
+          config: {
+            enabled: boolean;
+            intervalMinutes: number;
+          };
+          isRunning: boolean;
+          pendingEventCount: number;
+          totalRunCount: number;
+          lastRunAt: string | null;
+          lastRunStatus: 'applied' | 'observed' | 'no_events' | 'failed' | null;
+          activePatchTraits: string[];
+          activePatchKnowledgeDomains: string[];
+          nextRunAt: string | null;
+        }>;
+        saveConfig(config: Partial<{
+          enabled: boolean;
+          intervalMinutes: number;
+        }>): Promise<{
+          config: {
+            enabled: boolean;
+            intervalMinutes: number;
+          };
+          isRunning: boolean;
+          pendingEventCount: number;
+          totalRunCount: number;
+          lastRunAt: string | null;
+          lastRunStatus: 'applied' | 'observed' | 'no_events' | 'failed' | null;
+          activePatchTraits: string[];
+          activePatchKnowledgeDomains: string[];
+          nextRunAt: string | null;
+        }>;
+        runNow(): Promise<{
+          run: {
+            id: string;
+            trigger: 'manual' | 'scheduled';
+            status: 'applied' | 'observed' | 'no_events' | 'failed';
+            startedAt: string;
+            completedAt: string;
+            repeatedCount: number;
+            failedCount: number;
+            correctionCount: number;
+            gapCount: number;
+            detail: string;
+            summary: {
+              gaps: string[];
+              suggestedTraitAdjustments: string[];
+              suggestedKnowledgeDomains: string[];
+            };
+          };
+          status: {
+            config: {
+              enabled: boolean;
+              intervalMinutes: number;
+            };
+            isRunning: boolean;
+            pendingEventCount: number;
+            totalRunCount: number;
+            lastRunAt: string | null;
+            lastRunStatus: 'applied' | 'observed' | 'no_events' | 'failed' | null;
+            activePatchTraits: string[];
+            activePatchKnowledgeDomains: string[];
+            nextRunAt: string | null;
+          } | null;
+        }>;
+        listRuns(limit?: number): Promise<Array<{
+          id: string;
+          trigger: 'manual' | 'scheduled';
+          status: 'applied' | 'observed' | 'no_events' | 'failed';
+          startedAt: string;
+          completedAt: string;
+          repeatedCount: number;
+          failedCount: number;
+          correctionCount: number;
+          gapCount: number;
+          detail: string;
+          summary: {
+            gaps: string[];
+            suggestedTraitAdjustments: string[];
+            suggestedKnowledgeDomains: string[];
+          };
+        }>>;
+        onStatusUpdate(handler: (status: {
+          config: {
+            enabled: boolean;
+            intervalMinutes: number;
+          };
+          isRunning: boolean;
+          pendingEventCount: number;
+          totalRunCount: number;
+          lastRunAt: string | null;
+          lastRunStatus: 'applied' | 'observed' | 'no_events' | 'failed' | null;
+          activePatchTraits: string[];
+          activePatchKnowledgeDomains: string[];
+          nextRunAt: string | null;
+        }) => void): () => void;
+      };
       overlay: {
         getState(): Promise<{
           assistantName: string;

@@ -6,6 +6,7 @@ import { AiRouter, DEFAULT_PERSONALITY, mergePersonalityProfile, type AiProvider
 import { buildMemoryContext, InMemoryVectorStore } from '@vac/memory';
 import { FileAgent, FilePermissionRegistry, type DirectoryGrant, type FileSummary } from '@vac/offline';
 import { readdirSync, statSync, readFileSync } from 'node:fs';
+import { applyImprovementSummary, summarizeImprovements, type PersonalityProfile } from '@vac/ai-core';
 import type { CloudRuntime } from './cloud-runtime.js';
 
 type Provider = 'ollama' | 'openrouter' | 'openai' | 'anthropic';
@@ -86,10 +87,70 @@ type OfflineGrantRow = {
   reason: string;
 };
 
+type ImprovementEventKind = 'repeated_question' | 'failed_task' | 'user_correction';
+
+type ImprovementEventRow = {
+  id: string;
+  kind: ImprovementEventKind;
+  content: string;
+  conversationId: string;
+  createdAt: string;
+};
+
+type ImprovementRunRow = {
+  id: string;
+  trigger: 'manual' | 'scheduled';
+  status: 'applied' | 'observed' | 'no_events' | 'failed';
+  startedAt: string;
+  completedAt: string;
+  repeatedCount: number;
+  failedCount: number;
+  correctionCount: number;
+  gapCount: number;
+  detail: string;
+  summaryJson: string;
+};
+
+export type SelfImprovementConfig = {
+  enabled: boolean;
+  intervalMinutes: number;
+};
+
+export type SelfImprovementRunLog = {
+  id: string;
+  trigger: 'manual' | 'scheduled';
+  status: 'applied' | 'observed' | 'no_events' | 'failed';
+  startedAt: string;
+  completedAt: string;
+  repeatedCount: number;
+  failedCount: number;
+  correctionCount: number;
+  gapCount: number;
+  detail: string;
+  summary: {
+    gaps: string[];
+    suggestedTraitAdjustments: string[];
+    suggestedKnowledgeDomains: string[];
+  };
+};
+
+export type SelfImprovementStatus = {
+  config: SelfImprovementConfig;
+  isRunning: boolean;
+  pendingEventCount: number;
+  totalRunCount: number;
+  lastRunAt: string | null;
+  lastRunStatus: SelfImprovementRunLog['status'] | null;
+  activePatchTraits: string[];
+  activePatchKnowledgeDomains: string[];
+};
+
 const DEFAULT_USER_ID = 'local-user';
 const DEFAULT_PERSONALITY_ID = 'local-personality';
 const AI_RUNTIME_CONFIG_KEY = 'ai_runtime_config';
 const FILE_CONTEXT_PATHS_KEY = 'file_context_paths';
+const SELF_IMPROVEMENT_CONFIG_KEY = 'self_improvement_config';
+const SELF_IMPROVEMENT_PATCH_KEY = 'self_improvement_patch';
 const AVAILABLE_PROVIDERS: Provider[] = ['ollama', 'openrouter', 'openai', 'anthropic'];
 const UNAVAILABLE_REPLY_HINTS = ['unavailable right now', 'request failed', 'returned an empty response'];
 
@@ -109,6 +170,11 @@ const DEFAULT_AI_CONFIG: AiRuntimeConfig = {
   temperature: 0.7,
   maxTokens: 512,
   fallbackOrder: ['ollama', 'openrouter', 'openai', 'anthropic']
+};
+
+const DEFAULT_SELF_IMPROVEMENT_CONFIG: SelfImprovementConfig = {
+  enabled: true,
+  intervalMinutes: 30
 };
 
 const SQLITE_SCHEMA = `
@@ -158,6 +224,28 @@ CREATE TABLE IF NOT EXISTS offline_grants (
   granted_at TEXT NOT NULL,
   reason TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS improvement_events (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  content TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS improvement_runs (
+  id TEXT PRIMARY KEY,
+  trigger TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  repeated_count INTEGER NOT NULL,
+  failed_count INTEGER NOT NULL,
+  correction_count INTEGER NOT NULL,
+  gap_count INTEGER NOT NULL,
+  detail TEXT NOT NULL,
+  summary_json TEXT NOT NULL
+);
 `;
 
 export class VacRuntime {
@@ -169,6 +257,7 @@ export class VacRuntime {
   private cloudRuntime: CloudRuntime | null = null;
   private lastMemoryContext: MemoryContextSnapshot | null = null;
   private activeFileContextPaths: string[] = [];
+  private selfImprovementRunning = false;
 
   constructor() {
     this.db.pragma('journal_mode = WAL');
@@ -338,6 +427,231 @@ export class VacRuntime {
     return this.lastMemoryContext;
   }
 
+  loadSelfImprovementConfig(): SelfImprovementConfig {
+    const row = this.db
+      .prepare(
+        `
+          SELECT value_json as valueJson
+          FROM app_config
+          WHERE key = ?
+          LIMIT 1
+        `
+      )
+      .get(SELF_IMPROVEMENT_CONFIG_KEY) as { valueJson: string } | undefined;
+
+    if (!row) {
+      return DEFAULT_SELF_IMPROVEMENT_CONFIG;
+    }
+
+    try {
+      const parsed = JSON.parse(row.valueJson) as Partial<SelfImprovementConfig>;
+      return this.normalizeSelfImprovementConfig(parsed);
+    } catch {
+      return DEFAULT_SELF_IMPROVEMENT_CONFIG;
+    }
+  }
+
+  saveSelfImprovementConfig(input: Partial<SelfImprovementConfig>): SelfImprovementConfig {
+    const merged = this.normalizeSelfImprovementConfig({ ...this.loadSelfImprovementConfig(), ...input });
+    this.db
+      .prepare(
+        `
+          INSERT INTO app_config (key, value_json, updated_at)
+          VALUES (@key, @valueJson, @updatedAt)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `
+      )
+      .run({
+        key: SELF_IMPROVEMENT_CONFIG_KEY,
+        valueJson: JSON.stringify(merged),
+        updatedAt: new Date().toISOString()
+      });
+
+    return merged;
+  }
+
+  getSelfImprovementStatus(): SelfImprovementStatus {
+    const config = this.loadSelfImprovementConfig();
+    const lastRun = this.db
+      .prepare(
+        `
+          SELECT id, trigger, status, started_at as startedAt, completed_at as completedAt, repeated_count as repeatedCount,
+                 failed_count as failedCount, correction_count as correctionCount, gap_count as gapCount, detail, summary_json as summaryJson
+          FROM improvement_runs
+          ORDER BY completed_at DESC
+          LIMIT 1
+        `
+      )
+      .get() as ImprovementRunRow | undefined;
+
+    const runCountRow = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) as total
+          FROM improvement_runs
+        `
+      )
+      .get() as { total: number };
+
+    const pendingEventCount = this.pendingImprovementEventCount(lastRun?.completedAt ?? null);
+    const patch = this.loadSelfImprovementPatch();
+
+    return {
+      config,
+      isRunning: this.selfImprovementRunning,
+      pendingEventCount,
+      totalRunCount: runCountRow.total,
+      lastRunAt: lastRun?.completedAt ?? null,
+      lastRunStatus: lastRun?.status ?? null,
+      activePatchTraits: patch.traits,
+      activePatchKnowledgeDomains: patch.knowledgeDomains
+    };
+  }
+
+  listSelfImprovementRuns(limit = 12): SelfImprovementRunLog[] {
+    const normalizedLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, trigger, status, started_at as startedAt, completed_at as completedAt, repeated_count as repeatedCount,
+                 failed_count as failedCount, correction_count as correctionCount, gap_count as gapCount, detail, summary_json as summaryJson
+          FROM improvement_runs
+          ORDER BY completed_at DESC
+          LIMIT ?
+        `
+      )
+      .all(normalizedLimit) as ImprovementRunRow[];
+
+    return rows.map((row) => this.mapImprovementRun(row));
+  }
+
+  runSelfImprovementNow(trigger: 'manual' | 'scheduled' = 'manual'): SelfImprovementRunLog {
+    if (this.selfImprovementRunning) {
+      throw new Error('Self-improvement run already in progress.');
+    }
+
+    this.selfImprovementRunning = true;
+    const startedAt = new Date().toISOString();
+    const runId = randomUUID();
+
+    try {
+      const lastCompletedAt =
+        (this.db
+          .prepare(
+            `
+              SELECT completed_at as completedAt
+              FROM improvement_runs
+              ORDER BY completed_at DESC
+              LIMIT 1
+            `
+          )
+          .get() as { completedAt: string } | undefined)?.completedAt ?? null;
+
+      const events = this.loadImprovementEventsSince(lastCompletedAt);
+      const repeatedQuestions = events.filter((event) => event.kind === 'repeated_question').map((event) => event.content);
+      const failedTasks = events.filter((event) => event.kind === 'failed_task').map((event) => event.content);
+      const userCorrections = events.filter((event) => event.kind === 'user_correction').map((event) => event.content);
+
+      const summary = summarizeImprovements({
+        timestampIso: startedAt,
+        repeatedQuestions,
+        failedTasks,
+        userCorrections
+      });
+
+      let status: SelfImprovementRunLog['status'] = 'no_events';
+      let detail = 'No new events to review.';
+
+      if (events.length > 0) {
+        if (summary.gaps.length > 0) {
+          const current = this.buildActivePersonalityProfile();
+          const improved = applyImprovementSummary(current, summary);
+          this.saveSelfImprovementPatch({
+            traits: improved.traits,
+            knowledgeDomains: improved.knowledgeDomains
+          });
+          status = 'applied';
+          detail = `Applied ${summary.gaps.length} gap signals from ${events.length} events.`;
+        } else {
+          status = 'observed';
+          detail = `Observed ${events.length} events with no additional gaps detected.`;
+        }
+      }
+
+      const completedAt = new Date().toISOString();
+      this.db
+        .prepare(
+          `
+            INSERT INTO improvement_runs (
+              id, trigger, status, started_at, completed_at, repeated_count, failed_count, correction_count, gap_count, detail, summary_json
+            )
+            VALUES (
+              @id, @trigger, @status, @startedAt, @completedAt, @repeatedCount, @failedCount, @correctionCount, @gapCount, @detail, @summaryJson
+            )
+          `
+        )
+        .run({
+          id: runId,
+          trigger,
+          status,
+          startedAt,
+          completedAt,
+          repeatedCount: repeatedQuestions.length,
+          failedCount: failedTasks.length,
+          correctionCount: userCorrections.length,
+          gapCount: summary.gaps.length,
+          detail,
+          summaryJson: JSON.stringify(summary)
+        });
+
+      return {
+        id: runId,
+        trigger,
+        status,
+        startedAt,
+        completedAt,
+        repeatedCount: repeatedQuestions.length,
+        failedCount: failedTasks.length,
+        correctionCount: userCorrections.length,
+        gapCount: summary.gaps.length,
+        detail,
+        summary
+      };
+    } catch (error) {
+      const completedAt = new Date().toISOString();
+      const detail = error instanceof Error ? error.message : 'Unknown self-improvement failure';
+      const summary = {
+        gaps: [],
+        suggestedTraitAdjustments: [],
+        suggestedKnowledgeDomains: []
+      };
+
+      this.db
+        .prepare(
+          `
+            INSERT INTO improvement_runs (
+              id, trigger, status, started_at, completed_at, repeated_count, failed_count, correction_count, gap_count, detail, summary_json
+            )
+            VALUES (
+              @id, @trigger, 'failed', @startedAt, @completedAt, 0, 0, 0, 0, @detail, @summaryJson
+            )
+          `
+        )
+        .run({
+          id: runId,
+          trigger,
+          startedAt,
+          completedAt,
+          detail,
+          summaryJson: JSON.stringify(summary)
+        });
+
+      throw error;
+    } finally {
+      this.selfImprovementRunning = false;
+    }
+  }
+
   listOfflineGrants(): DirectoryGrant[] {
     return this.permissions.list();
   }
@@ -490,6 +804,8 @@ export class VacRuntime {
         createdAt: new Date().toISOString()
       });
 
+    this.captureUserImprovementEvents(conversationId, input.content);
+
     await this.vectorStore.upsert({
       id: `message:${userMessageId}`,
       text: input.content,
@@ -531,6 +847,10 @@ export class VacRuntime {
       embedding: this.embedText(assistantMessage.content)
     });
 
+    if (this.isFailureReply(assistantMessage.content)) {
+      this.recordImprovementEvent('failed_task', conversationId, assistantMessage.content.slice(0, 220));
+    }
+
     const summary = this.compactConversationSummary([...messages, assistantMessage]);
     this.db
       .prepare(
@@ -571,10 +891,15 @@ export class VacRuntime {
   ): Promise<string> {
     const config = this.loadAiConfig();
     const providerOrder = this.buildProviderOrder(profile.provider, config.fallbackOrder);
-    const personality = mergePersonalityProfile(DEFAULT_PERSONALITY, {
+    const basePersonality = mergePersonalityProfile(DEFAULT_PERSONALITY, {
       name: profile.assistantName,
       communicationStyle: profile.personality,
       voiceId: profile.voice
+    });
+    const patch = this.loadSelfImprovementPatch();
+    const personality = mergePersonalityProfile(basePersonality, {
+      traits: patch.traits.length > 0 ? patch.traits : basePersonality.traits,
+      knowledgeDomains: patch.knowledgeDomains.length > 0 ? patch.knowledgeDomains : basePersonality.knowledgeDomains
     });
     const memorySnapshot = await this.buildMemorySnapshot(messages[messages.length - 1]?.content ?? '', conversationId);
     const injectedSystemMessages: ChatMessage[] = [];
@@ -664,6 +989,11 @@ export class VacRuntime {
     return UNAVAILABLE_REPLY_HINTS.some((hint) => lowered.includes(hint));
   }
 
+  private isFailureReply(reply: string): boolean {
+    const lowered = reply.toLowerCase();
+    return lowered.includes('could not reach any configured provider') || lowered.includes('unavailable');
+  }
+
   private normalizeAiConfig(input: Partial<AiRuntimeConfig>): AiRuntimeConfig {
     const incomingModels = input.models ?? DEFAULT_AI_CONFIG.models;
     const incomingAliases = input.keyAliases ?? DEFAULT_AI_CONFIG.keyAliases;
@@ -691,6 +1021,14 @@ export class VacRuntime {
       temperature: typeof input.temperature === 'number' ? Math.min(1.5, Math.max(0, input.temperature)) : DEFAULT_AI_CONFIG.temperature,
       maxTokens: typeof input.maxTokens === 'number' ? Math.min(2048, Math.max(64, Math.floor(input.maxTokens))) : DEFAULT_AI_CONFIG.maxTokens,
       fallbackOrder: fallbackOrder.length > 0 ? fallbackOrder : DEFAULT_AI_CONFIG.fallbackOrder
+    };
+  }
+
+  private normalizeSelfImprovementConfig(input: Partial<SelfImprovementConfig>): SelfImprovementConfig {
+    const intervalRaw = typeof input.intervalMinutes === 'number' ? input.intervalMinutes : DEFAULT_SELF_IMPROVEMENT_CONFIG.intervalMinutes;
+    return {
+      enabled: typeof input.enabled === 'boolean' ? input.enabled : DEFAULT_SELF_IMPROVEMENT_CONFIG.enabled,
+      intervalMinutes: Math.max(5, Math.min(240, Math.floor(intervalRaw)))
     };
   }
 
@@ -829,6 +1167,208 @@ export class VacRuntime {
         reason: row.reason
       });
     }
+  }
+
+  private loadImprovementEventsSince(sinceIso: string | null): ImprovementEventRow[] {
+    if (sinceIso) {
+      return this.db
+        .prepare(
+          `
+            SELECT id, kind, content, conversation_id as conversationId, created_at as createdAt
+            FROM improvement_events
+            WHERE created_at > ?
+            ORDER BY created_at ASC
+          `
+        )
+        .all(sinceIso) as ImprovementEventRow[];
+    }
+
+    return this.db
+      .prepare(
+        `
+          SELECT id, kind, content, conversation_id as conversationId, created_at as createdAt
+          FROM improvement_events
+          ORDER BY created_at ASC
+          LIMIT 300
+        `
+      )
+      .all() as ImprovementEventRow[];
+  }
+
+  private pendingImprovementEventCount(sinceIso: string | null): number {
+    if (sinceIso) {
+      const row = this.db
+        .prepare(
+          `
+            SELECT COUNT(*) as total
+            FROM improvement_events
+            WHERE created_at > ?
+          `
+        )
+        .get(sinceIso) as { total: number };
+      return row.total;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) as total
+          FROM improvement_events
+        `
+      )
+      .get() as { total: number };
+    return row.total;
+  }
+
+  private mapImprovementRun(row: ImprovementRunRow): SelfImprovementRunLog {
+    let summary: SelfImprovementRunLog['summary'] = {
+      gaps: [],
+      suggestedTraitAdjustments: [],
+      suggestedKnowledgeDomains: []
+    };
+
+    try {
+      const parsed = JSON.parse(row.summaryJson) as SelfImprovementRunLog['summary'];
+      summary = {
+        gaps: Array.isArray(parsed.gaps) ? parsed.gaps : [],
+        suggestedTraitAdjustments: Array.isArray(parsed.suggestedTraitAdjustments) ? parsed.suggestedTraitAdjustments : [],
+        suggestedKnowledgeDomains: Array.isArray(parsed.suggestedKnowledgeDomains) ? parsed.suggestedKnowledgeDomains : []
+      };
+    } catch {
+      summary = {
+        gaps: [],
+        suggestedTraitAdjustments: [],
+        suggestedKnowledgeDomains: []
+      };
+    }
+
+    return {
+      id: row.id,
+      trigger: row.trigger,
+      status: row.status,
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      repeatedCount: row.repeatedCount,
+      failedCount: row.failedCount,
+      correctionCount: row.correctionCount,
+      gapCount: row.gapCount,
+      detail: row.detail,
+      summary
+    };
+  }
+
+  private loadSelfImprovementPatch(): { traits: string[]; knowledgeDomains: string[] } {
+    const row = this.db
+      .prepare(
+        `
+          SELECT value_json as valueJson
+          FROM app_config
+          WHERE key = ?
+          LIMIT 1
+        `
+      )
+      .get(SELF_IMPROVEMENT_PATCH_KEY) as { valueJson: string } | undefined;
+
+    if (!row) {
+      return { traits: [], knowledgeDomains: [] };
+    }
+
+    try {
+      const parsed = JSON.parse(row.valueJson) as { traits?: string[]; knowledgeDomains?: string[] };
+      return {
+        traits: Array.isArray(parsed.traits) ? parsed.traits.filter((item) => typeof item === 'string') : [],
+        knowledgeDomains: Array.isArray(parsed.knowledgeDomains)
+          ? parsed.knowledgeDomains.filter((item) => typeof item === 'string')
+          : []
+      };
+    } catch {
+      return { traits: [], knowledgeDomains: [] };
+    }
+  }
+
+  private saveSelfImprovementPatch(patch: { traits: string[]; knowledgeDomains: string[] }) {
+    this.db
+      .prepare(
+        `
+          INSERT INTO app_config (key, value_json, updated_at)
+          VALUES (@key, @valueJson, @updatedAt)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `
+      )
+      .run({
+        key: SELF_IMPROVEMENT_PATCH_KEY,
+        valueJson: JSON.stringify({
+          traits: Array.from(new Set(patch.traits)).slice(0, 24),
+          knowledgeDomains: Array.from(new Set(patch.knowledgeDomains)).slice(0, 24)
+        }),
+        updatedAt: new Date().toISOString()
+      });
+  }
+
+  private buildActivePersonalityProfile(): PersonalityProfile {
+    const profile = this.loadProfile();
+    const base = mergePersonalityProfile(DEFAULT_PERSONALITY, {
+      name: profile?.assistantName ?? DEFAULT_PERSONALITY.name,
+      communicationStyle: profile?.personality ?? DEFAULT_PERSONALITY.communicationStyle,
+      voiceId: profile?.voice ?? DEFAULT_PERSONALITY.voiceId
+    });
+    const patch = this.loadSelfImprovementPatch();
+    return mergePersonalityProfile(base, {
+      traits: patch.traits.length > 0 ? patch.traits : base.traits,
+      knowledgeDomains: patch.knowledgeDomains.length > 0 ? patch.knowledgeDomains : base.knowledgeDomains
+    });
+  }
+
+  private captureUserImprovementEvents(conversationId: string, content: string) {
+    const normalized = this.normalizeUserMessage(content);
+    if (!normalized) {
+      return;
+    }
+
+    const repeatedRow = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) as total
+          FROM messages
+          WHERE role = 'user' AND lower(trim(content)) = ?
+        `
+      )
+      .get(normalized) as { total: number };
+
+    if (repeatedRow.total >= 2) {
+      this.recordImprovementEvent('repeated_question', conversationId, content.slice(0, 220));
+    }
+
+    if (this.looksLikeUserCorrection(content)) {
+      this.recordImprovementEvent('user_correction', conversationId, content.slice(0, 220));
+    }
+  }
+
+  private normalizeUserMessage(content: string): string {
+    return content.toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  private looksLikeUserCorrection(content: string): boolean {
+    const normalized = this.normalizeUserMessage(content);
+    const correctionSignals = ['you are wrong', 'thats wrong', "that's wrong", 'no,', 'not correct', 'fix this', 'incorrect'];
+    return correctionSignals.some((signal) => normalized.includes(signal));
+  }
+
+  private recordImprovementEvent(kind: ImprovementEventKind, conversationId: string, content: string) {
+    this.db
+      .prepare(
+        `
+          INSERT INTO improvement_events (id, kind, content, conversation_id, created_at)
+          VALUES (@id, @kind, @content, @conversationId, @createdAt)
+        `
+      )
+      .run({
+        id: randomUUID(),
+        kind,
+        content,
+        conversationId,
+        createdAt: new Date().toISOString()
+      });
   }
 
   private loadFileContextPaths(): string[] {

@@ -48,6 +48,7 @@ pnpm test
 - [x] MVP 4: Supabase auth UI and profile sync connected to the backend package
 - [x] MVP 5: Polished settings, vault management, and desktop runtime smoke coverage
 - [x] MVP 6: Provider routing runtime controls, health checks, and global themed background image
+- [x] MVP 7: Real OpenAI/Anthropic/OpenRouter execution with vault-backed key alias routing
 
 ## Current Verification
 
@@ -84,3 +85,5 @@ MVP 4 is verified by `scripts/verify-mvp4.mjs` plus the standard build and packa
 MVP 5 is verified by `scripts/verify-mvp5.mjs` plus the standard build and packaging pipeline. It checks Settings runtime visibility metrics, local key vault management controls, desktop vault IPC channels, and encrypted local secret storage hooks.
 
 MVP 6 is verified by `scripts/verify-mvp6.mjs` plus the standard build and packaging pipeline. It checks AI routing config IPC, provider health checks, fallback model configuration in Settings, and app-wide use of the shared background theme image.
+
+MVP 7 is verified by `scripts/verify-mvp7.mjs` plus the standard build and packaging pipeline. It checks real OpenAI/Anthropic/OpenRouter endpoint adapters, credential-aware completion options, vault secret resolution for provider calls, and Settings key-alias mapping for AI routing.

@@ -58,6 +58,12 @@ declare global {
             openai: string;
             anthropic: string;
           };
+          keyAliases: {
+            ollama: string;
+            openrouter: string;
+            openai: string;
+            anthropic: string;
+          };
           temperature: number;
           maxTokens: number;
           fallbackOrder: Array<'ollama' | 'openrouter' | 'openai' | 'anthropic'>;
@@ -69,11 +75,23 @@ declare global {
             openai: string;
             anthropic: string;
           };
+          keyAliases: {
+            ollama: string;
+            openrouter: string;
+            openai: string;
+            anthropic: string;
+          };
           temperature: number;
           maxTokens: number;
           fallbackOrder: Array<'ollama' | 'openrouter' | 'openai' | 'anthropic'>;
         }>): Promise<{
           models: {
+            ollama: string;
+            openrouter: string;
+            openai: string;
+            anthropic: string;
+          };
+          keyAliases: {
             ollama: string;
             openrouter: string;
             openai: string;

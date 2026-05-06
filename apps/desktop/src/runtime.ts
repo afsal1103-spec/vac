@@ -3,6 +3,7 @@ import { app } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AiRouter, DEFAULT_PERSONALITY, mergePersonalityProfile, type AiProvider, type RouterHealth } from '@vac/ai-core';
+import type { CloudRuntime } from './cloud-runtime.js';
 
 type Provider = 'ollama' | 'openrouter' | 'openai' | 'anthropic';
 
@@ -35,6 +36,7 @@ export type ChatExchange = {
 
 export type AiRuntimeConfig = {
   models: Record<Provider, string>;
+  keyAliases: Record<Provider, string>;
   temperature: number;
   maxTokens: number;
   fallbackOrder: Provider[];
@@ -71,6 +73,12 @@ const DEFAULT_AI_CONFIG: AiRuntimeConfig = {
     openrouter: 'openai/gpt-4o-mini',
     openai: 'gpt-4o-mini',
     anthropic: 'claude-3-5-haiku-latest'
+  },
+  keyAliases: {
+    ollama: '',
+    openrouter: '',
+    openai: '',
+    anthropic: ''
   },
   temperature: 0.7,
   maxTokens: 512,
@@ -116,10 +124,15 @@ CREATE TABLE IF NOT EXISTS app_config (
 export class VacRuntime {
   private readonly db = new Database(join(app.getPath('userData'), 'vac.sqlite'));
   private readonly aiRouter = new AiRouter();
+  private cloudRuntime: CloudRuntime | null = null;
 
   constructor() {
     this.db.pragma('journal_mode = WAL');
     this.db.exec(SQLITE_SCHEMA);
+  }
+
+  attachCloudRuntime(cloudRuntime: CloudRuntime) {
+    this.cloudRuntime = cloudRuntime;
   }
 
   loadProfile(): AppProfile | null {
@@ -265,12 +278,13 @@ export class VacRuntime {
 
   async getAiHealth(): Promise<RouterHealth[]> {
     const config = this.loadAiConfig();
+    const keyByProvider = this.resolveProviderKeys(config);
     return this.aiRouter.health({
       ollama: config.models.ollama,
       openrouter: config.models.openrouter,
       openai: config.models.openai,
       anthropic: config.models.anthropic
-    });
+    }, keyByProvider);
   }
 
   getConversationMessages(conversationId: string): ChatMessage[] {
@@ -375,7 +389,8 @@ export class VacRuntime {
             provider: provider as AiProvider,
             model,
             temperature: config.temperature,
-            maxTokens: config.maxTokens
+            maxTokens: config.maxTokens,
+            apiKey: this.resolveProviderKey(provider, config)
           },
           personality
         )) {
@@ -437,11 +452,18 @@ export class VacRuntime {
 
   private normalizeAiConfig(input: Partial<AiRuntimeConfig>): AiRuntimeConfig {
     const incomingModels = input.models ?? DEFAULT_AI_CONFIG.models;
+    const incomingAliases = input.keyAliases ?? DEFAULT_AI_CONFIG.keyAliases;
     const models: Record<Provider, string> = {
       ollama: incomingModels.ollama?.trim() || DEFAULT_AI_CONFIG.models.ollama,
       openrouter: incomingModels.openrouter?.trim() || DEFAULT_AI_CONFIG.models.openrouter,
       openai: incomingModels.openai?.trim() || DEFAULT_AI_CONFIG.models.openai,
       anthropic: incomingModels.anthropic?.trim() || DEFAULT_AI_CONFIG.models.anthropic
+    };
+    const keyAliases: Record<Provider, string> = {
+      ollama: incomingAliases.ollama?.trim() || '',
+      openrouter: incomingAliases.openrouter?.trim() || '',
+      openai: incomingAliases.openai?.trim() || '',
+      anthropic: incomingAliases.anthropic?.trim() || ''
     };
 
     const fallbackCandidate = Array.isArray(input.fallbackOrder) ? input.fallbackOrder : DEFAULT_AI_CONFIG.fallbackOrder;
@@ -451,9 +473,30 @@ export class VacRuntime {
 
     return {
       models,
+      keyAliases,
       temperature: typeof input.temperature === 'number' ? Math.min(1.5, Math.max(0, input.temperature)) : DEFAULT_AI_CONFIG.temperature,
       maxTokens: typeof input.maxTokens === 'number' ? Math.min(2048, Math.max(64, Math.floor(input.maxTokens))) : DEFAULT_AI_CONFIG.maxTokens,
       fallbackOrder: fallbackOrder.length > 0 ? fallbackOrder : DEFAULT_AI_CONFIG.fallbackOrder
     };
+  }
+
+  private resolveProviderKeys(config: AiRuntimeConfig): Partial<Record<Provider, string>> {
+    return {
+      ollama: this.resolveProviderKey('ollama', config) ?? undefined,
+      openrouter: this.resolveProviderKey('openrouter', config) ?? undefined,
+      openai: this.resolveProviderKey('openai', config) ?? undefined,
+      anthropic: this.resolveProviderKey('anthropic', config) ?? undefined
+    };
+  }
+
+  private resolveProviderKey(provider: Provider, config: AiRuntimeConfig): string | undefined {
+    if (provider === 'ollama') {
+      return undefined;
+    }
+    if (!this.cloudRuntime) {
+      return undefined;
+    }
+    const resolved = this.cloudRuntime.resolveProviderSecret(provider, config.keyAliases[provider]);
+    return resolved ?? undefined;
   }
 }

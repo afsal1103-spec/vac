@@ -52,10 +52,10 @@ export class AiRouter {
     }
   }
 
-  async health(modelByProvider: Record<AiProvider, string>): Promise<RouterHealth[]> {
+  async health(modelByProvider: Record<AiProvider, string>, keyByProvider?: Partial<Record<AiProvider, string>>): Promise<RouterHealth[]> {
     return Promise.all(
       Object.entries(this.adapters).map(async ([provider, adapter]) =>
-        adapter.health(modelByProvider[provider as AiProvider])
+        adapter.health(modelByProvider[provider as AiProvider], keyByProvider?.[provider as AiProvider])
       )
     );
   }

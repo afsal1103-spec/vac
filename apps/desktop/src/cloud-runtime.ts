@@ -144,6 +144,22 @@ export class CloudRuntime {
     return { removed: removedRef || removedSecret };
   }
 
+  resolveProviderSecret(provider: string, keyAlias?: string): string | null {
+    const normalizedProvider = provider.trim().toLowerCase();
+    const refs = this.listKeyRefs().filter((ref) => ref.provider === normalizedProvider);
+    if (refs.length === 0) {
+      return null;
+    }
+
+    if (keyAlias?.trim()) {
+      const target = refs.find((ref) => ref.keyAlias === keyAlias.trim());
+      return target ? (this.secrets.get(target.id) ?? null) : null;
+    }
+
+    const latest = refs[refs.length - 1];
+    return latest ? (this.secrets.get(latest.id) ?? null) : null;
+  }
+
   async syncSnapshot(snapshot: SyncSnapshot): Promise<SyncResult> {
     if (!this.isConfigured()) {
       return {

@@ -71,6 +71,7 @@ type SyncResult = {
 
 type AiRuntimeConfig = {
   models: Record<Provider, string>;
+  keyAliases: Record<Provider, string>;
   temperature: number;
   maxTokens: number;
   fallbackOrder: Provider[];

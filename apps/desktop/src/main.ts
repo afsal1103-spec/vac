@@ -362,6 +362,7 @@ ipcMain.handle('vac:chat-send-message', async (_event, payload) => {
 app.whenReady().then(async () => {
   runtime = new VacRuntime();
   cloudRuntime = new CloudRuntime();
+  runtime.attachCloudRuntime(cloudRuntime);
   voiceRuntime = new VoiceRuntime((sessionId, event: PipelineEvent) => {
     publishVoiceEvent(sessionId, event);
 

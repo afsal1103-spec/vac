@@ -67,6 +67,7 @@ type VaultKeyRef = {
 
 type AiRuntimeConfig = {
   models: Record<Provider, string>;
+  keyAliases: Record<Provider, string>;
   temperature: number;
   maxTokens: number;
   fallbackOrder: Provider[];
@@ -616,6 +617,19 @@ function SettingsPage() {
     });
   }
 
+  function updateAiAlias(provider: Provider, value: string) {
+    setAiConfig((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        keyAliases: {
+          ...current.keyAliases,
+          [provider]: value
+        }
+      };
+    });
+  }
+
   function runAuth(mode: 'sign-up' | 'sign-in') {
     setSyncMessage('');
     startTransition(() => {
@@ -757,6 +771,14 @@ function SettingsPage() {
             />
           </label>
           <label>
+            OpenRouter key alias
+            <input
+              value={aiConfig?.keyAliases.openrouter ?? ''}
+              onChange={(event) => updateAiAlias('openrouter', event.target.value)}
+              placeholder="work-openrouter"
+            />
+          </label>
+          <label>
             OpenAI model
             <input
               value={aiConfig?.models.openai ?? ''}
@@ -765,11 +787,27 @@ function SettingsPage() {
             />
           </label>
           <label>
+            OpenAI key alias
+            <input
+              value={aiConfig?.keyAliases.openai ?? ''}
+              onChange={(event) => updateAiAlias('openai', event.target.value)}
+              placeholder="work-openai"
+            />
+          </label>
+          <label>
             Anthropic model
             <input
               value={aiConfig?.models.anthropic ?? ''}
               onChange={(event) => updateAiModel('anthropic', event.target.value)}
               placeholder="claude-3-5-haiku-latest"
+            />
+          </label>
+          <label>
+            Anthropic key alias
+            <input
+              value={aiConfig?.keyAliases.anthropic ?? ''}
+              onChange={(event) => updateAiAlias('anthropic', event.target.value)}
+              placeholder="work-anthropic"
             />
           </label>
           <label>

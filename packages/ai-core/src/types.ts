@@ -13,6 +13,7 @@ export type CompletionOptions = {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  apiKey?: string;
 };
 
 export type CompletionChunk = {

@@ -50,6 +50,7 @@ pnpm test
 - [x] MVP 6: Provider routing runtime controls, health checks, and global themed background image
 - [x] MVP 7: Real OpenAI/Anthropic/OpenRouter execution with vault-backed key alias routing
 - [x] MVP 8: Live chat chunk streaming and incremental voice playback handoff
+- [x] MVP 9: Retrieval memory context injection, summary compaction, and scored relevance visibility
 
 ## Current Verification
 
@@ -90,3 +91,5 @@ MVP 6 is verified by `scripts/verify-mvp6.mjs` plus the standard build and packa
 MVP 7 is verified by `scripts/verify-mvp7.mjs` plus the standard build and packaging pipeline. It checks real OpenAI/Anthropic/OpenRouter endpoint adapters, credential-aware completion options, vault secret resolution for provider calls, and Settings key-alias mapping for AI routing.
 
 MVP 8 is verified by `scripts/verify-mvp8.mjs` plus the standard build and packaging pipeline. It checks desktop chat stream chunk emission, renderer stream subscriptions, live transcript rendering in Chat, and incremental sentence-based voice handoff.
+
+MVP 9 is verified by `scripts/verify-mvp9.mjs` plus the standard build and packaging pipeline. It checks runtime memory retrieval context assembly, summary compaction storage, memory relevance score exposure through IPC, and chat memory-hit visibility in the renderer.

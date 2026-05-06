@@ -84,6 +84,13 @@ type RouterHealth = {
   detail: string;
 };
 
+type MemoryContextSnapshot = {
+  query: string;
+  context: string;
+  hits: Array<{ id: string; score: number; text: string; source: string }>;
+  generatedAt: string;
+};
+
 type VaultKeyRef = {
   id: string;
   provider: string;
@@ -128,6 +135,9 @@ const vacApi = {
     getConfig: () => ipcRenderer.invoke('vac:ai-config-get') as Promise<AiRuntimeConfig>,
     saveConfig: (config: Partial<AiRuntimeConfig>) => ipcRenderer.invoke('vac:ai-config-save', config) as Promise<AiRuntimeConfig>,
     health: () => ipcRenderer.invoke('vac:ai-health') as Promise<RouterHealth[]>
+  },
+  memory: {
+    getLastContext: () => ipcRenderer.invoke('vac:memory-last-context') as Promise<MemoryContextSnapshot | null>
   },
   overlay: {
     getState: () => ipcRenderer.invoke('vac:overlay-get-state') as Promise<OverlayState>,

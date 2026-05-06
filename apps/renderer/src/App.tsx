@@ -80,6 +80,13 @@ type AiHealth = {
   detail: string;
 };
 
+type MemoryContextSnapshot = {
+  query: string;
+  context: string;
+  hits: Array<{ id: string; score: number; text: string; source: string }>;
+  generatedAt: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -309,6 +316,7 @@ function ChatPage() {
   const [streamingConversationId, setStreamingConversationId] = useState<string | null>(null);
   const [streamingReply, setStreamingReply] = useState('');
   const [streamProvider, setStreamProvider] = useState<Provider | null>(null);
+  const [memoryContext, setMemoryContext] = useState<MemoryContextSnapshot | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [isVoicePending, startVoiceTransition] = useTransition();
@@ -326,6 +334,7 @@ function ChatPage() {
         setActiveConversationId(loaded[0].id);
       }
     });
+    window.vac.memory.getLastContext().then(setMemoryContext).catch(() => setMemoryContext(null));
   }, []);
 
   useEffect(() => {
@@ -455,9 +464,12 @@ function ChatPage() {
           setStreamingReply('');
           setStreamProvider(null);
           setMessages(result.messages);
-          return window.vac.chat.listConversations();
+          return Promise.all([window.vac.chat.listConversations(), window.vac.memory.getLastContext()]);
         })
-        .then(setConversations)
+        .then(([loadedConversations, context]) => {
+          setConversations(loadedConversations);
+          setMemoryContext(context);
+        })
         .catch((error) => {
           setChatError(error instanceof Error ? error.message : 'Unable to send message');
           setDraft(content);
@@ -551,6 +563,7 @@ function ChatPage() {
                 {profile ? `${profile.provider} profile active` : 'Set up onboarding to unlock chat'}
               </p>
               {streamingReply ? <p className="inline-note">Streaming via {streamProvider ?? profile?.provider ?? 'provider'}</p> : null}
+              {memoryContext ? <p className="inline-note">Memory hits: {memoryContext.hits.length}</p> : null}
               <p className="inline-note">{voiceStatus}</p>
               {voiceTranscript ? <p className="inline-note">Mic text: {voiceTranscript}</p> : null}
             </div>

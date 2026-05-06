@@ -3,6 +3,7 @@ import { app } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AiRouter, DEFAULT_PERSONALITY, mergePersonalityProfile, type AiProvider, type RouterHealth } from '@vac/ai-core';
+import { buildMemoryContext, InMemoryVectorStore } from '@vac/memory';
 import type { CloudRuntime } from './cloud-runtime.js';
 
 type Provider = 'ollama' | 'openrouter' | 'openai' | 'anthropic';
@@ -36,6 +37,13 @@ export type ChatExchange = {
 
 type StreamChunkHandler = (chunk: { conversationId: string; text: string; done: boolean; provider: Provider }) => void;
 
+export type MemoryContextSnapshot = {
+  query: string;
+  context: string;
+  hits: Array<{ id: string; score: number; text: string; source: string }>;
+  generatedAt: string;
+};
+
 export type AiRuntimeConfig = {
   models: Record<Provider, string>;
   keyAliases: Record<Provider, string>;
@@ -60,6 +68,12 @@ type PersonalityRow = {
 type AppConfigRow = {
   key: string;
   valueJson: string;
+  updatedAt: string;
+};
+
+type MemorySummaryRow = {
+  conversationId: string;
+  summary: string;
   updatedAt: string;
 };
 
@@ -121,16 +135,25 @@ CREATE TABLE IF NOT EXISTS app_config (
   value_json TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS memory_summaries (
+  conversation_id TEXT PRIMARY KEY,
+  summary TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 export class VacRuntime {
   private readonly db = new Database(join(app.getPath('userData'), 'vac.sqlite'));
   private readonly aiRouter = new AiRouter();
+  private readonly vectorStore = new InMemoryVectorStore();
   private cloudRuntime: CloudRuntime | null = null;
+  private lastMemoryContext: MemoryContextSnapshot | null = null;
 
   constructor() {
     this.db.pragma('journal_mode = WAL');
     this.db.exec(SQLITE_SCHEMA);
+    void this.hydrateMemoryIndex();
   }
 
   attachCloudRuntime(cloudRuntime: CloudRuntime) {
@@ -289,6 +312,10 @@ export class VacRuntime {
     }, keyByProvider);
   }
 
+  getLastMemoryContext(): MemoryContextSnapshot | null {
+    return this.lastMemoryContext;
+  }
+
   getConversationMessages(conversationId: string): ChatMessage[] {
     return (
       this.db
@@ -331,6 +358,7 @@ export class VacRuntime {
         });
     }
 
+    const userMessageId = randomUUID();
     this.db
       .prepare(
         `
@@ -339,16 +367,28 @@ export class VacRuntime {
         `
       )
       .run({
-        id: randomUUID(),
+        id: userMessageId,
         conversationId,
         role: 'user',
         content: input.content,
         createdAt: new Date().toISOString()
       });
 
+    await this.vectorStore.upsert({
+      id: `message:${userMessageId}`,
+      text: input.content,
+      metadata: {
+        source: 'message',
+        role: 'user',
+        conversationId
+      },
+      embedding: this.embedText(input.content)
+    });
+
     const reply = await this.completeWithProvider(profile, messages, conversationId, onChunk);
     const assistantMessage: ChatMessage = { role: 'assistant', content: reply };
 
+    const assistantMessageId = randomUUID();
     this.db
       .prepare(
         `
@@ -357,12 +397,48 @@ export class VacRuntime {
         `
       )
       .run({
-        id: randomUUID(),
+        id: assistantMessageId,
         conversationId,
         role: 'assistant',
         content: assistantMessage.content,
         createdAt: new Date().toISOString()
       });
+
+    await this.vectorStore.upsert({
+      id: `message:${assistantMessageId}`,
+      text: assistantMessage.content,
+      metadata: {
+        source: 'message',
+        role: 'assistant',
+        conversationId
+      },
+      embedding: this.embedText(assistantMessage.content)
+    });
+
+    const summary = this.compactConversationSummary([...messages, assistantMessage]);
+    this.db
+      .prepare(
+        `
+          INSERT INTO memory_summaries (conversation_id, summary, updated_at)
+          VALUES (@conversationId, @summary, @updatedAt)
+          ON CONFLICT(conversation_id) DO UPDATE SET summary = excluded.summary, updated_at = excluded.updated_at
+        `
+      )
+      .run({
+        conversationId,
+        summary,
+        updatedAt: new Date().toISOString()
+      });
+
+    await this.vectorStore.upsert({
+      id: `summary:${conversationId}`,
+      text: summary,
+      metadata: {
+        source: 'summary',
+        conversationId
+      },
+      embedding: this.embedText(summary)
+    });
 
     return {
       conversationId,
@@ -384,6 +460,10 @@ export class VacRuntime {
       communicationStyle: profile.personality,
       voiceId: profile.voice
     });
+    const memorySnapshot = await this.buildMemorySnapshot(messages[messages.length - 1]?.content ?? '', conversationId);
+    const enrichedMessages = memorySnapshot.hits.length > 0
+      ? [{ role: 'system', content: memorySnapshot.context } as ChatMessage, ...messages]
+      : messages;
     const failures: string[] = [];
 
     for (const provider of providerOrder) {
@@ -391,7 +471,7 @@ export class VacRuntime {
       try {
         let reply = '';
         for await (const chunk of this.aiRouter.complete(
-          messages,
+          enrichedMessages,
           {
             provider: provider as AiProvider,
             model,
@@ -490,6 +570,122 @@ export class VacRuntime {
       maxTokens: typeof input.maxTokens === 'number' ? Math.min(2048, Math.max(64, Math.floor(input.maxTokens))) : DEFAULT_AI_CONFIG.maxTokens,
       fallbackOrder: fallbackOrder.length > 0 ? fallbackOrder : DEFAULT_AI_CONFIG.fallbackOrder
     };
+  }
+
+  private async hydrateMemoryIndex() {
+    await this.vectorStore.clear();
+
+    const messageRows = this.db
+      .prepare(
+        `
+          SELECT id, conversation_id as conversationId, role, content
+          FROM messages
+          ORDER BY created_at ASC
+        `
+      )
+      .all() as Array<{ id: string; conversationId: string; role: 'system' | 'user' | 'assistant'; content: string }>;
+
+    for (const row of messageRows) {
+      await this.vectorStore.upsert({
+        id: `message:${row.id}`,
+        text: row.content,
+        metadata: {
+          source: 'message',
+          role: row.role,
+          conversationId: row.conversationId
+        },
+        embedding: this.embedText(row.content)
+      });
+    }
+
+    const summaries = this.db
+      .prepare(
+        `
+          SELECT conversation_id as conversationId, summary, updated_at as updatedAt
+          FROM memory_summaries
+        `
+      )
+      .all() as MemorySummaryRow[];
+
+    for (const summary of summaries) {
+      await this.vectorStore.upsert({
+        id: `summary:${summary.conversationId}`,
+        text: summary.summary,
+        metadata: {
+          source: 'summary',
+          conversationId: summary.conversationId,
+          updatedAt: summary.updatedAt
+        },
+        embedding: this.embedText(summary.summary)
+      });
+    }
+  }
+
+  private async buildMemorySnapshot(query: string, activeConversationId: string): Promise<MemoryContextSnapshot> {
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) {
+      const empty: MemoryContextSnapshot = {
+        query: '',
+        context: 'No relevant memory items were found.',
+        hits: [],
+        generatedAt: new Date().toISOString()
+      };
+      this.lastMemoryContext = empty;
+      return empty;
+    }
+
+    const rawResults = await this.vectorStore.similaritySearch(this.embedText(normalizedQuery), 8);
+    const filtered = rawResults
+      .filter((item) => item.score > 0.08)
+      .filter((item) => item.metadata.conversationId !== activeConversationId || item.metadata.source === 'summary')
+      .slice(0, 5);
+
+    const context = buildMemoryContext(filtered);
+    const snapshot: MemoryContextSnapshot = {
+      query: normalizedQuery,
+      context,
+      hits: filtered.map((item) => ({
+        id: item.id,
+        score: item.score,
+        text: item.text,
+        source: item.metadata.source ?? 'message'
+      })),
+      generatedAt: new Date().toISOString()
+    };
+    this.lastMemoryContext = snapshot;
+    return snapshot;
+  }
+
+  private embedText(input: string): number[] {
+    const cleaned = input.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+    const terms = cleaned.split(/\s+/).filter(Boolean);
+    const vectorSize = 64;
+    const vector = new Array<number>(vectorSize).fill(0);
+
+    for (const term of terms) {
+      let hash = 2166136261;
+      for (let i = 0; i < term.length; i += 1) {
+        hash ^= term.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      const index = Math.abs(hash) % vectorSize;
+      vector[index] += 1;
+    }
+
+    const magnitude = Math.sqrt(vector.reduce((total, value) => total + value * value, 0));
+    if (magnitude === 0) {
+      return vector;
+    }
+    return vector.map((value) => value / magnitude);
+  }
+
+  private compactConversationSummary(messages: ChatMessage[]): string {
+    const userMessages = messages.filter((message) => message.role === 'user');
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
+    const latestUser = userMessages[userMessages.length - 1]?.content ?? '';
+    const latestAssistant = assistantMessages[assistantMessages.length - 1]?.content ?? '';
+    const summary = `User asked: ${latestUser.slice(0, 140)} | Assistant answered: ${latestAssistant.slice(0, 180)}`;
+    return summary.trim();
   }
 
   private resolveProviderKeys(config: AiRuntimeConfig): Partial<Record<Provider, string>> {

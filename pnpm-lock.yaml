@@ -13,6 +13,9 @@ importers:
       '@vac/ai-core':
         specifier: workspace:*
         version: link:../../packages/ai-core
+      '@vac/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
       better-sqlite3:
         specifier: ^12.4.1
         version: 12.9.0

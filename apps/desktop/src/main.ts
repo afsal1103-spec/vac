@@ -329,6 +329,13 @@ ipcMain.handle('vac:ai-health', async () => {
   return runtime.getAiHealth();
 });
 
+ipcMain.handle('vac:memory-last-context', () => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.getLastMemoryContext();
+});
+
 ipcMain.handle('vac:chat-get-messages', (_event, conversationId: string) => {
   if (!runtime) {
     throw new Error('VAC runtime is not ready.');

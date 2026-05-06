@@ -116,6 +116,14 @@ declare global {
           detail: string;
         }>>;
       };
+      memory: {
+        getLastContext(): Promise<{
+          query: string;
+          context: string;
+          hits: Array<{ id: string; score: number; text: string; source: string }>;
+          generatedAt: string;
+        } | null>;
+      };
       overlay: {
         getState(): Promise<{
           assistantName: string;

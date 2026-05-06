@@ -49,6 +49,14 @@ declare global {
           reply: string;
           messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
         }>;
+        onStream(
+          handler: (payload: {
+            conversationId: string;
+            text: string;
+            done: boolean;
+            provider: 'ollama' | 'openrouter' | 'openai' | 'anthropic';
+          }) => void
+        ): () => void;
       };
       ai: {
         getConfig(): Promise<{

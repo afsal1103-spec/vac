@@ -34,6 +34,8 @@ export type ChatExchange = {
   messages: ChatMessage[];
 };
 
+type StreamChunkHandler = (chunk: { conversationId: string; text: string; done: boolean; provider: Provider }) => void;
+
 export type AiRuntimeConfig = {
   models: Record<Provider, string>;
   keyAliases: Record<Provider, string>;
@@ -302,7 +304,7 @@ export class VacRuntime {
     );
   }
 
-  async sendMessage(input: { conversationId?: string; content: string }): Promise<ChatExchange> {
+  async sendMessage(input: { conversationId?: string; content: string }, onChunk?: StreamChunkHandler): Promise<ChatExchange> {
     const profile = this.loadProfile();
     if (!profile) {
       throw new Error('Profile is not configured yet.');
@@ -344,7 +346,7 @@ export class VacRuntime {
         createdAt: new Date().toISOString()
       });
 
-    const reply = await this.completeWithProvider(profile, messages);
+    const reply = await this.completeWithProvider(profile, messages, conversationId, onChunk);
     const assistantMessage: ChatMessage = { role: 'assistant', content: reply };
 
     this.db
@@ -369,7 +371,12 @@ export class VacRuntime {
     };
   }
 
-  private async completeWithProvider(profile: AppProfile, messages: ChatMessage[]): Promise<string> {
+  private async completeWithProvider(
+    profile: AppProfile,
+    messages: ChatMessage[],
+    conversationId: string,
+    onChunk?: StreamChunkHandler
+  ): Promise<string> {
     const config = this.loadAiConfig();
     const providerOrder = this.buildProviderOrder(profile.provider, config.fallbackOrder);
     const personality = mergePersonalityProfile(DEFAULT_PERSONALITY, {
@@ -395,7 +402,11 @@ export class VacRuntime {
           personality
         )) {
           if (!chunk.done) {
-            reply += chunk.text;
+            const slices = this.sliceChunk(chunk.text);
+            for (const slice of slices) {
+              reply += slice;
+              onChunk?.({ conversationId, text: slice, done: false, provider });
+            }
           }
         }
 
@@ -410,6 +421,7 @@ export class VacRuntime {
           continue;
         }
 
+        onChunk?.({ conversationId, text: '', done: true, provider });
         return normalized;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Unknown error';
@@ -498,5 +510,20 @@ export class VacRuntime {
     }
     const resolved = this.cloudRuntime.resolveProviderSecret(provider, config.keyAliases[provider]);
     return resolved ?? undefined;
+  }
+
+  private sliceChunk(input: string): string[] {
+    const normalized = input.trim();
+    if (!normalized) {
+      return [];
+    }
+    const slices: string[] = [];
+    let cursor = 0;
+    const step = 42;
+    while (cursor < normalized.length) {
+      slices.push(normalized.slice(cursor, cursor + step));
+      cursor += step;
+    }
+    return slices;
   }
 }

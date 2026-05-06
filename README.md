@@ -49,6 +49,7 @@ pnpm test
 - [x] MVP 5: Polished settings, vault management, and desktop runtime smoke coverage
 - [x] MVP 6: Provider routing runtime controls, health checks, and global themed background image
 - [x] MVP 7: Real OpenAI/Anthropic/OpenRouter execution with vault-backed key alias routing
+- [x] MVP 8: Live chat chunk streaming and incremental voice playback handoff
 
 ## Current Verification
 
@@ -87,3 +88,5 @@ MVP 5 is verified by `scripts/verify-mvp5.mjs` plus the standard build and packa
 MVP 6 is verified by `scripts/verify-mvp6.mjs` plus the standard build and packaging pipeline. It checks AI routing config IPC, provider health checks, fallback model configuration in Settings, and app-wide use of the shared background theme image.
 
 MVP 7 is verified by `scripts/verify-mvp7.mjs` plus the standard build and packaging pipeline. It checks real OpenAI/Anthropic/OpenRouter endpoint adapters, credential-aware completion options, vault secret resolution for provider calls, and Settings key-alias mapping for AI routing.
+
+MVP 8 is verified by `scripts/verify-mvp8.mjs` plus the standard build and packaging pipeline. It checks desktop chat stream chunk emission, renderer stream subscriptions, live transcript rendering in Chat, and incremental sentence-based voice handoff.

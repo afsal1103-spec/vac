@@ -115,6 +115,10 @@ function publishVoiceEvent(sessionId: string, event: PipelineEvent) {
   mainWindow?.webContents.send('vac:voice-event', { sessionId, event });
 }
 
+function publishChatStream(payload: { conversationId: string; text: string; done: boolean; provider: string }) {
+  mainWindow?.webContents.send('vac:chat-stream', payload);
+}
+
 function setOverlayState(update: Partial<OverlayState>) {
   Object.assign(overlayState, update, { updatedAt: new Date().toISOString() });
   publishOverlayState();
@@ -341,7 +345,9 @@ ipcMain.handle('vac:chat-send-message', async (_event, payload) => {
     lastMessage: payload.content.slice(0, 88) || 'Thinking...'
   });
 
-  const result = await runtime.sendMessage(payload);
+  const result = await runtime.sendMessage(payload, (chunk) => {
+    publishChatStream(chunk);
+  });
 
   setOverlayState({
     mode: 'speaking',

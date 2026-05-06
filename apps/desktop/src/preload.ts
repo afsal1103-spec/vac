@@ -112,7 +112,17 @@ const vacApi = {
         conversationId: string;
         reply: string;
         messages: ChatMessage[];
-      }>
+      }>,
+    onStream: (handler: (payload: { conversationId: string; text: string; done: boolean; provider: Provider }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { conversationId: string; text: string; done: boolean; provider: Provider }
+      ) => handler(payload);
+      ipcRenderer.on('vac:chat-stream', listener);
+      return () => {
+        ipcRenderer.removeListener('vac:chat-stream', listener);
+      };
+    }
   },
   ai: {
     getConfig: () => ipcRenderer.invoke('vac:ai-config-get') as Promise<AiRuntimeConfig>,

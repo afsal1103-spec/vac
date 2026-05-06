@@ -306,12 +306,17 @@ function ChatPage() {
   const [voiceSession, setVoiceSession] = useState<VoiceSession | null>(null);
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceStatus, setVoiceStatus] = useState('Voice session offline');
+  const [streamingConversationId, setStreamingConversationId] = useState<string | null>(null);
+  const [streamingReply, setStreamingReply] = useState('');
+  const [streamProvider, setStreamProvider] = useState<Provider | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [isVoicePending, startVoiceTransition] = useTransition();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const voiceSessionIdRef = useRef<string | null>(null);
+  const spokenCharCountRef = useRef(0);
+  const sentenceRemainderRef = useRef('');
 
   useEffect(() => {
     window.vac.profile.load().then(setProfile);
@@ -322,6 +327,42 @@ function ChatPage() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.vac.chat.onStream((payload) => {
+      setStreamingConversationId(payload.conversationId);
+      setStreamProvider(payload.provider);
+      if (payload.done) {
+        sentenceRemainderRef.current = '';
+        spokenCharCountRef.current = 0;
+        return;
+      }
+
+      setStreamingReply((current) => {
+        const next = `${current}${payload.text}`;
+        if (voiceSession && next.length > spokenCharCountRef.current) {
+          const delta = next.slice(spokenCharCountRef.current);
+          sentenceRemainderRef.current += delta;
+          const sentenceMatch = sentenceRemainderRef.current.match(/^(.*?[.!?])(\s|$)/);
+          if (sentenceMatch?.[1]) {
+            const sentence = sentenceMatch[1].trim();
+            if (sentence.length > 0) {
+              void window.vac.voice.speakText({
+                sessionId: voiceSession.id,
+                text: sentence,
+                isFinal: false
+              });
+            }
+            sentenceRemainderRef.current = sentenceRemainderRef.current.slice(sentenceMatch[0].length);
+          }
+          spokenCharCountRef.current = next.length;
+        }
+        return next;
+      });
+    });
+
+    return () => unsubscribe();
+  }, [voiceSession]);
 
   useEffect(() => {
     let mounted = true;
@@ -391,19 +432,28 @@ function ChatPage() {
     setChatError('');
     const content = draft;
     setDraft('');
+    setStreamingReply('');
+    setStreamingConversationId(activeConversationId);
+    setStreamProvider(profile?.provider ?? null);
+    spokenCharCountRef.current = 0;
+    sentenceRemainderRef.current = '';
 
     startTransition(() => {
       window.vac.chat
         .sendMessage({ conversationId: activeConversationId ?? undefined, content })
         .then((result) => {
-          if (voiceSession) {
+          if (voiceSession && sentenceRemainderRef.current.trim()) {
             void window.vac.voice.speakText({
               sessionId: voiceSession.id,
-              text: result.reply,
+              text: sentenceRemainderRef.current.trim(),
               isFinal: true
             });
+            sentenceRemainderRef.current = '';
           }
           setActiveConversationId(result.conversationId);
+          setStreamingConversationId(null);
+          setStreamingReply('');
+          setStreamProvider(null);
           setMessages(result.messages);
           return window.vac.chat.listConversations();
         })
@@ -500,6 +550,7 @@ function ChatPage() {
               <p className="inline-note">
                 {profile ? `${profile.provider} profile active` : 'Set up onboarding to unlock chat'}
               </p>
+              {streamingReply ? <p className="inline-note">Streaming via {streamProvider ?? profile?.provider ?? 'provider'}</p> : null}
               <p className="inline-note">{voiceStatus}</p>
               {voiceTranscript ? <p className="inline-note">Mic text: {voiceTranscript}</p> : null}
             </div>
@@ -511,11 +562,16 @@ function ChatPage() {
             {messages.length === 0 ? (
               <p className="inline-note">Start a conversation. If Ollama is not running, the app will tell you plainly.</p>
             ) : (
-              messages.map((message, index) => (
-                <div key={`${message.role}-${index}`} className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
-                  {message.content}
-                </div>
-              ))
+              <>
+                {messages.map((message, index) => (
+                  <div key={`${message.role}-${index}`} className={`message ${message.role === 'user' ? 'user' : 'assistant'}`}>
+                    {message.content}
+                  </div>
+                ))}
+                {streamingReply && streamingConversationId === (activeConversationId ?? streamingConversationId) ? (
+                  <div className="message assistant">{streamingReply}</div>
+                ) : null}
+              </>
             )}
           </div>
           <div className="chat-composer">

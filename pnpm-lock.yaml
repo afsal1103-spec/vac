@@ -10,6 +10,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@vac/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       better-sqlite3:
         specifier: ^12.4.1
         version: 12.9.0

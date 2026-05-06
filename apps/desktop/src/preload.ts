@@ -69,6 +69,20 @@ type SyncResult = {
   detail: string;
 };
 
+type AiRuntimeConfig = {
+  models: Record<Provider, string>;
+  temperature: number;
+  maxTokens: number;
+  fallbackOrder: Provider[];
+};
+
+type RouterHealth = {
+  provider: Provider;
+  model: string;
+  online: boolean;
+  detail: string;
+};
+
 type VaultKeyRef = {
   id: string;
   provider: string;
@@ -98,6 +112,11 @@ const vacApi = {
         reply: string;
         messages: ChatMessage[];
       }>
+  },
+  ai: {
+    getConfig: () => ipcRenderer.invoke('vac:ai-config-get') as Promise<AiRuntimeConfig>,
+    saveConfig: (config: Partial<AiRuntimeConfig>) => ipcRenderer.invoke('vac:ai-config-save', config) as Promise<AiRuntimeConfig>,
+    health: () => ipcRenderer.invoke('vac:ai-health') as Promise<RouterHealth[]>
   },
   overlay: {
     getState: () => ipcRenderer.invoke('vac:overlay-get-state') as Promise<OverlayState>,

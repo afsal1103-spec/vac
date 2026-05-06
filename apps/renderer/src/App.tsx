@@ -65,6 +65,20 @@ type VaultKeyRef = {
   createdAt: string;
 };
 
+type AiRuntimeConfig = {
+  models: Record<Provider, string>;
+  temperature: number;
+  maxTokens: number;
+  fallbackOrder: Provider[];
+};
+
+type AiHealth = {
+  provider: Provider;
+  model: string;
+  online: boolean;
+  detail: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -556,6 +570,9 @@ function CustomizePage() {
 function SettingsPage() {
   const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudAuthStatus | null>(null);
+  const [aiConfig, setAiConfig] = useState<AiRuntimeConfig | null>(null);
+  const [aiHealth, setAiHealth] = useState<AiHealth[]>([]);
+  const [fallbackDraft, setFallbackDraft] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [vaultProvider, setVaultProvider] = useState<Provider>('openai');
@@ -567,6 +584,13 @@ function SettingsPage() {
 
   useEffect(() => {
     window.vac.shell.getStatus().then(setShellStatus).catch(() => setShellStatus(null));
+    window.vac.ai
+      .getConfig()
+      .then((config) => {
+        setAiConfig(config);
+        setFallbackDraft(config.fallbackOrder.join(','));
+      })
+      .catch(() => setAiConfig(null));
     window.vac.cloud.getStatus().then(setCloudStatus).catch((error) => {
       setCloudStatus({
         configured: false,
@@ -578,6 +602,19 @@ function SettingsPage() {
     });
     window.vac.vault.list().then(setVaultRefs).catch(() => setVaultRefs([]));
   }, []);
+
+  function updateAiModel(provider: Provider, value: string) {
+    setAiConfig((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        models: {
+          ...current.models,
+          [provider]: value
+        }
+      };
+    });
+  }
 
   function runAuth(mode: 'sign-up' | 'sign-in') {
     setSyncMessage('');
@@ -655,9 +692,160 @@ function SettingsPage() {
     });
   }
 
+  function saveAiConfig() {
+    if (!aiConfig) return;
+    setSyncMessage('');
+    const fallbackOrder = fallbackDraft
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter((item): item is Provider => item === 'ollama' || item === 'openrouter' || item === 'openai' || item === 'anthropic');
+
+    startTransition(() => {
+      window.vac.ai
+        .saveConfig({
+          ...aiConfig,
+          fallbackOrder
+        })
+        .then((saved) => {
+          setAiConfig(saved);
+          setFallbackDraft(saved.fallbackOrder.join(','));
+          setSyncMessage('AI routing config saved');
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to save AI config');
+        });
+    });
+  }
+
+  function refreshAiHealth() {
+    setSyncMessage('');
+    startTransition(() => {
+      window.vac.ai
+        .health()
+        .then((health) => {
+          setAiHealth(health);
+          setSyncMessage('Provider health refreshed');
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Unable to load AI health');
+        });
+    });
+  }
+
   return (
     <Page title="Settings" kicker="Provider and runtime visibility">
       <section className="settings-grid">
+        <div className="panel form-stack">
+          <div>
+            <h3>AI router (MVP 6)</h3>
+            <p className="inline-note">Configure model routing, fallback order, and provider health checks.</p>
+          </div>
+          <label>
+            Ollama model
+            <input
+              value={aiConfig?.models.ollama ?? ''}
+              onChange={(event) => updateAiModel('ollama', event.target.value)}
+              placeholder="llama3.2"
+            />
+          </label>
+          <label>
+            OpenRouter model
+            <input
+              value={aiConfig?.models.openrouter ?? ''}
+              onChange={(event) => updateAiModel('openrouter', event.target.value)}
+              placeholder="openai/gpt-4o-mini"
+            />
+          </label>
+          <label>
+            OpenAI model
+            <input
+              value={aiConfig?.models.openai ?? ''}
+              onChange={(event) => updateAiModel('openai', event.target.value)}
+              placeholder="gpt-4o-mini"
+            />
+          </label>
+          <label>
+            Anthropic model
+            <input
+              value={aiConfig?.models.anthropic ?? ''}
+              onChange={(event) => updateAiModel('anthropic', event.target.value)}
+              placeholder="claude-3-5-haiku-latest"
+            />
+          </label>
+          <label>
+            Temperature
+            <input
+              type="number"
+              min={0}
+              max={1.5}
+              step={0.1}
+              value={aiConfig?.temperature ?? 0.7}
+              onChange={(event) =>
+                setAiConfig((current) =>
+                  current
+                    ? {
+                        ...current,
+                        temperature: Number(event.target.value)
+                      }
+                    : current
+                )
+              }
+            />
+          </label>
+          <label>
+            Max tokens
+            <input
+              type="number"
+              min={64}
+              max={2048}
+              step={64}
+              value={aiConfig?.maxTokens ?? 512}
+              onChange={(event) =>
+                setAiConfig((current) =>
+                  current
+                    ? {
+                        ...current,
+                        maxTokens: Number(event.target.value)
+                      }
+                    : current
+                )
+              }
+            />
+          </label>
+          <label>
+            Fallback order
+            <input
+              value={fallbackDraft}
+              onChange={(event) => setFallbackDraft(event.target.value)}
+              placeholder="ollama,openrouter,openai,anthropic"
+            />
+          </label>
+          <div className="form-actions wrap">
+            <button className="primary-button" type="button" onClick={saveAiConfig} disabled={isPending || !aiConfig}>
+              Save AI config
+            </button>
+            <button className="primary-button secondary" type="button" onClick={refreshAiHealth} disabled={isPending}>
+              Check provider health
+            </button>
+          </div>
+          <div className="vault-list">
+            {aiHealth.length === 0 ? (
+              <p className="inline-note">Run health check to view provider status.</p>
+            ) : (
+              aiHealth.map((entry) => (
+                <div key={entry.provider} className="vault-row">
+                  <div>
+                    <strong>
+                      {entry.provider} - {entry.online ? 'online' : 'offline'}
+                    </strong>
+                    <p className="inline-note">{entry.detail}</p>
+                  </div>
+                  <span className="inline-note">{entry.model}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
         <div className="panel form-stack">
           <div>
             <h3>Cloud sync</h3>

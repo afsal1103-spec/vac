@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { app } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { AiRouter, DEFAULT_PERSONALITY, mergePersonalityProfile, type AiProvider, type RouterHealth } from '@vac/ai-core';
 
 type Provider = 'ollama' | 'openrouter' | 'openai' | 'anthropic';
 
@@ -32,6 +33,13 @@ export type ChatExchange = {
   messages: ChatMessage[];
 };
 
+export type AiRuntimeConfig = {
+  models: Record<Provider, string>;
+  temperature: number;
+  maxTokens: number;
+  fallbackOrder: Provider[];
+};
+
 type UserRow = {
   id: string;
   name: string;
@@ -45,8 +53,29 @@ type PersonalityRow = {
   createdAt: string;
 };
 
+type AppConfigRow = {
+  key: string;
+  valueJson: string;
+  updatedAt: string;
+};
+
 const DEFAULT_USER_ID = 'local-user';
 const DEFAULT_PERSONALITY_ID = 'local-personality';
+const AI_RUNTIME_CONFIG_KEY = 'ai_runtime_config';
+const AVAILABLE_PROVIDERS: Provider[] = ['ollama', 'openrouter', 'openai', 'anthropic'];
+const UNAVAILABLE_REPLY_HINTS = ['unavailable right now', 'request failed', 'returned an empty response'];
+
+const DEFAULT_AI_CONFIG: AiRuntimeConfig = {
+  models: {
+    ollama: 'llama3.2',
+    openrouter: 'openai/gpt-4o-mini',
+    openai: 'gpt-4o-mini',
+    anthropic: 'claude-3-5-haiku-latest'
+  },
+  temperature: 0.7,
+  maxTokens: 512,
+  fallbackOrder: ['ollama', 'openrouter', 'openai', 'anthropic']
+};
 
 const SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -76,19 +105,17 @@ CREATE TABLE IF NOT EXISTS personalities (
   profile_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-`;
 
-function buildSystemPrompt(profile: AppProfile): string {
-  return [
-    `You are ${profile.assistantName}, a Virtual Avatar Companion.`,
-    `Primary personality: ${profile.personality}.`,
-    `Voice preset: ${profile.voice}.`,
-    'Be concise, practical, and honest about runtime limitations.'
-  ].join('\n');
-}
+CREATE TABLE IF NOT EXISTS app_config (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`;
 
 export class VacRuntime {
   private readonly db = new Database(join(app.getPath('userData'), 'vac.sqlite'));
+  private readonly aiRouter = new AiRouter();
 
   constructor() {
     this.db.pragma('journal_mode = WAL');
@@ -193,6 +220,59 @@ export class VacRuntime {
     };
   }
 
+  loadAiConfig(): AiRuntimeConfig {
+    const row = this.db
+      .prepare(
+        `
+          SELECT key, value_json as valueJson, updated_at as updatedAt
+          FROM app_config
+          WHERE key = ?
+          LIMIT 1
+        `
+      )
+      .get(AI_RUNTIME_CONFIG_KEY) as AppConfigRow | undefined;
+
+    if (!row) {
+      return DEFAULT_AI_CONFIG;
+    }
+
+    try {
+      const parsed = JSON.parse(row.valueJson) as Partial<AiRuntimeConfig>;
+      return this.normalizeAiConfig(parsed);
+    } catch {
+      return DEFAULT_AI_CONFIG;
+    }
+  }
+
+  saveAiConfig(input: Partial<AiRuntimeConfig>): AiRuntimeConfig {
+    const merged = this.normalizeAiConfig({ ...this.loadAiConfig(), ...input });
+    this.db
+      .prepare(
+        `
+          INSERT INTO app_config (key, value_json, updated_at)
+          VALUES (@key, @valueJson, @updatedAt)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `
+      )
+      .run({
+        key: AI_RUNTIME_CONFIG_KEY,
+        valueJson: JSON.stringify(merged),
+        updatedAt: new Date().toISOString()
+      });
+
+    return merged;
+  }
+
+  async getAiHealth(): Promise<RouterHealth[]> {
+    const config = this.loadAiConfig();
+    return this.aiRouter.health({
+      ollama: config.models.ollama,
+      openrouter: config.models.openrouter,
+      openai: config.models.openai,
+      anthropic: config.models.anthropic
+    });
+  }
+
   getConversationMessages(conversationId: string): ChatMessage[] {
     return (
       this.db
@@ -276,30 +356,104 @@ export class VacRuntime {
   }
 
   private async completeWithProvider(profile: AppProfile, messages: ChatMessage[]): Promise<string> {
-    if (profile.provider !== 'ollama') {
-      return `${profile.assistantName} is configured for ${profile.provider}, but MVP 1 only wires a live Ollama request.`;
-    }
+    const config = this.loadAiConfig();
+    const providerOrder = this.buildProviderOrder(profile.provider, config.fallbackOrder);
+    const personality = mergePersonalityProfile(DEFAULT_PERSONALITY, {
+      name: profile.assistantName,
+      communicationStyle: profile.personality,
+      voiceId: profile.voice
+    });
+    const failures: string[] = [];
 
-    try {
-      const response = await fetch('http://127.0.0.1:11434/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama3.2',
-          stream: false,
-          messages: [{ role: 'system', content: buildSystemPrompt(profile) }, ...messages]
-        })
-      });
+    for (const provider of providerOrder) {
+      const model = config.models[provider];
+      try {
+        let reply = '';
+        for await (const chunk of this.aiRouter.complete(
+          messages,
+          {
+            provider: provider as AiProvider,
+            model,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens
+          },
+          personality
+        )) {
+          if (!chunk.done) {
+            reply += chunk.text;
+          }
+        }
 
-      if (!response.ok) {
-        throw new Error(`Ollama returned ${response.status}`);
+        const normalized = reply.trim();
+        if (!normalized) {
+          failures.push(`${provider}: empty response`);
+          continue;
+        }
+
+        if (this.looksUnavailable(normalized)) {
+          failures.push(`${provider}: unavailable`);
+          continue;
+        }
+
+        return normalized;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unknown error';
+        failures.push(`${provider}: ${detail}`);
       }
-
-      const payload = (await response.json()) as { message?: { content?: string } };
-      return payload.message?.content?.trim() || 'Ollama returned an empty response.';
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Unknown error';
-      return `Ollama is unavailable right now. ${detail}`;
     }
+
+    return `${profile.assistantName} could not reach any configured provider. ${failures.join(' | ')}`;
+  }
+
+  private buildProviderOrder(primary: Provider, fallbackOrder: Provider[]): Provider[] {
+    const visited = new Set<Provider>();
+    const ordered: Provider[] = [];
+
+    if (AVAILABLE_PROVIDERS.includes(primary)) {
+      ordered.push(primary);
+      visited.add(primary);
+    }
+
+    for (const provider of fallbackOrder) {
+      if (!visited.has(provider) && AVAILABLE_PROVIDERS.includes(provider)) {
+        ordered.push(provider);
+        visited.add(provider);
+      }
+    }
+
+    for (const provider of AVAILABLE_PROVIDERS) {
+      if (!visited.has(provider)) {
+        ordered.push(provider);
+      }
+    }
+
+    return ordered;
+  }
+
+  private looksUnavailable(reply: string): boolean {
+    const lowered = reply.toLowerCase();
+    return UNAVAILABLE_REPLY_HINTS.some((hint) => lowered.includes(hint));
+  }
+
+  private normalizeAiConfig(input: Partial<AiRuntimeConfig>): AiRuntimeConfig {
+    const incomingModels = input.models ?? DEFAULT_AI_CONFIG.models;
+    const models: Record<Provider, string> = {
+      ollama: incomingModels.ollama?.trim() || DEFAULT_AI_CONFIG.models.ollama,
+      openrouter: incomingModels.openrouter?.trim() || DEFAULT_AI_CONFIG.models.openrouter,
+      openai: incomingModels.openai?.trim() || DEFAULT_AI_CONFIG.models.openai,
+      anthropic: incomingModels.anthropic?.trim() || DEFAULT_AI_CONFIG.models.anthropic
+    };
+
+    const fallbackCandidate = Array.isArray(input.fallbackOrder) ? input.fallbackOrder : DEFAULT_AI_CONFIG.fallbackOrder;
+    const fallbackOrder = fallbackCandidate.filter((provider): provider is Provider =>
+      AVAILABLE_PROVIDERS.includes(provider)
+    );
+
+    return {
+      models,
+      temperature: typeof input.temperature === 'number' ? Math.min(1.5, Math.max(0, input.temperature)) : DEFAULT_AI_CONFIG.temperature,
+      maxTokens: typeof input.maxTokens === 'number' ? Math.min(2048, Math.max(64, Math.floor(input.maxTokens))) : DEFAULT_AI_CONFIG.maxTokens,
+      fallbackOrder: fallbackOrder.length > 0 ? fallbackOrder : DEFAULT_AI_CONFIG.fallbackOrder
+    };
   }
 }

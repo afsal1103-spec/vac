@@ -13,6 +13,7 @@
     "test": "pnpm build"
   },
   "dependencies": {
+    "@vac/ai-core": "workspace:*",
     "better-sqlite3": "^12.4.1"
   },
   "devDependencies": {

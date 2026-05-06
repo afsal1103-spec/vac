@@ -304,6 +304,27 @@ ipcMain.handle('vac:profile-save', (_event, profile) => {
 
 ipcMain.handle('vac:chat-list-conversations', () => runtime?.listConversations() ?? []);
 
+ipcMain.handle('vac:ai-config-get', () => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.loadAiConfig();
+});
+
+ipcMain.handle('vac:ai-config-save', (_event, config) => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.saveAiConfig(config);
+});
+
+ipcMain.handle('vac:ai-health', async () => {
+  if (!runtime) {
+    throw new Error('VAC runtime is not ready.');
+  }
+  return runtime.getAiHealth();
+});
+
 ipcMain.handle('vac:chat-get-messages', (_event, conversationId: string) => {
   if (!runtime) {
     throw new Error('VAC runtime is not ready.');

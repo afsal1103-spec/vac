@@ -50,6 +50,46 @@ declare global {
           messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
         }>;
       };
+      ai: {
+        getConfig(): Promise<{
+          models: {
+            ollama: string;
+            openrouter: string;
+            openai: string;
+            anthropic: string;
+          };
+          temperature: number;
+          maxTokens: number;
+          fallbackOrder: Array<'ollama' | 'openrouter' | 'openai' | 'anthropic'>;
+        }>;
+        saveConfig(config: Partial<{
+          models: {
+            ollama: string;
+            openrouter: string;
+            openai: string;
+            anthropic: string;
+          };
+          temperature: number;
+          maxTokens: number;
+          fallbackOrder: Array<'ollama' | 'openrouter' | 'openai' | 'anthropic'>;
+        }>): Promise<{
+          models: {
+            ollama: string;
+            openrouter: string;
+            openai: string;
+            anthropic: string;
+          };
+          temperature: number;
+          maxTokens: number;
+          fallbackOrder: Array<'ollama' | 'openrouter' | 'openai' | 'anthropic'>;
+        }>;
+        health(): Promise<Array<{
+          provider: 'ollama' | 'openrouter' | 'openai' | 'anthropic';
+          model: string;
+          online: boolean;
+          detail: string;
+        }>>;
+      };
       overlay: {
         getState(): Promise<{
           assistantName: string;

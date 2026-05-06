@@ -47,6 +47,7 @@ pnpm test
 - [x] MVP 3: Voice capture and playback wired through the desktop runtime
 - [x] MVP 4: Supabase auth UI and profile sync connected to the backend package
 - [x] MVP 5: Polished settings, vault management, and desktop runtime smoke coverage
+- [x] MVP 6: Provider routing runtime controls, health checks, and global themed background image
 
 ## Current Verification
 
@@ -81,3 +82,5 @@ MVP 3 is verified by `scripts/verify-mvp3.mjs` plus the standard build and packa
 MVP 4 is verified by `scripts/verify-mvp4.mjs` plus the standard build and packaging pipeline. It checks Supabase environment detection, email/password auth IPC, cloud sync controls in Settings, and profile/conversation summary sync wiring.
 
 MVP 5 is verified by `scripts/verify-mvp5.mjs` plus the standard build and packaging pipeline. It checks Settings runtime visibility metrics, local key vault management controls, desktop vault IPC channels, and encrypted local secret storage hooks.
+
+MVP 6 is verified by `scripts/verify-mvp6.mjs` plus the standard build and packaging pipeline. It checks AI routing config IPC, provider health checks, fallback model configuration in Settings, and app-wide use of the shared background theme image.

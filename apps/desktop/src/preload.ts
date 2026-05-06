@@ -54,6 +54,21 @@ type VoiceEventPayload = {
     | { type: 'error'; message: string };
 };
 
+type CloudAuthStatus = {
+  configured: boolean;
+  signedIn: boolean;
+  userId: string | null;
+  email: string | null;
+  detail: string;
+};
+
+type SyncResult = {
+  synced: boolean;
+  profileSynced: boolean;
+  conversationCount: number;
+  detail: string;
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -107,6 +122,15 @@ const vacApi = {
         ipcRenderer.removeListener('vac:voice-event', listener);
       };
     }
+  },
+  cloud: {
+    getStatus: () => ipcRenderer.invoke('vac:cloud-status') as Promise<CloudAuthStatus>,
+    signUp: (payload: { email: string; password: string }) =>
+      ipcRenderer.invoke('vac:cloud-sign-up', payload) as Promise<{ status: CloudAuthStatus }>,
+    signIn: (payload: { email: string; password: string }) =>
+      ipcRenderer.invoke('vac:cloud-sign-in', payload) as Promise<{ status: CloudAuthStatus }>,
+    signOut: () => ipcRenderer.invoke('vac:cloud-sign-out') as Promise<{ status: CloudAuthStatus }>,
+    syncNow: () => ipcRenderer.invoke('vac:cloud-sync-now') as Promise<SyncResult>
   }
 };
 

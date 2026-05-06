@@ -45,7 +45,7 @@ pnpm test
 - [x] MVP 1: Local onboarding, SQLite profile save, local conversation persistence, Electron IPC chat loop, Ollama-first response path
 - [x] MVP 2: Live overlay avatar state connected to active conversation and profile
 - [x] MVP 3: Voice capture and playback wired through the desktop runtime
-- [ ] MVP 4: Supabase auth UI and profile sync connected to the backend package
+- [x] MVP 4: Supabase auth UI and profile sync connected to the backend package
 - [ ] MVP 5: Polished settings, vault management, and desktop runtime smoke coverage
 
 ## Current Verification
@@ -77,3 +77,5 @@ MVP 1 is verified by `scripts/verify-mvp1.mjs` plus the standard build and packa
 MVP 2 is verified by `scripts/verify-mvp2.mjs` plus the standard build and packaging pipeline. It checks overlay state channels, thinking/speaking transitions during chat, overlay state subscriptions in preload/renderer, and dashboard visibility of live overlay state.
 
 MVP 3 is verified by `scripts/verify-mvp3.mjs` plus the standard build and packaging pipeline. It checks desktop voice session IPC, mic chunk relay from renderer, voice event subscription loop, and TTS chunk playback wiring in chat.
+
+MVP 4 is verified by `scripts/verify-mvp4.mjs` plus the standard build and packaging pipeline. It checks Supabase environment detection, email/password auth IPC, cloud sync controls in Settings, and profile/conversation summary sync wiring.

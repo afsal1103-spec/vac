@@ -110,6 +110,54 @@ declare global {
           }) => void
         ): () => void;
       };
+      cloud: {
+        getStatus(): Promise<{
+          configured: boolean;
+          signedIn: boolean;
+          userId: string | null;
+          email: string | null;
+          detail: string;
+        }>;
+        signUp(payload: {
+          email: string;
+          password: string;
+        }): Promise<{
+          status: {
+            configured: boolean;
+            signedIn: boolean;
+            userId: string | null;
+            email: string | null;
+            detail: string;
+          };
+        }>;
+        signIn(payload: {
+          email: string;
+          password: string;
+        }): Promise<{
+          status: {
+            configured: boolean;
+            signedIn: boolean;
+            userId: string | null;
+            email: string | null;
+            detail: string;
+          };
+        }>;
+        signOut(): Promise<{
+          status: {
+            configured: boolean;
+            signedIn: boolean;
+            userId: string | null;
+            email: string | null;
+            detail: string;
+          };
+        }>;
+        syncNow(): Promise<{
+          synced: boolean;
+          profileSynced: boolean;
+          conversationCount: number;
+          detail: string;
+        }>;
+      };
     };
   }
 }

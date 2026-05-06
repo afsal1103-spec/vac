@@ -50,6 +50,14 @@ type VoiceSession = {
   createdAt: string;
 };
 
+type CloudAuthStatus = {
+  configured: boolean;
+  signedIn: boolean;
+  userId: string | null;
+  email: string | null;
+  detail: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -539,9 +547,107 @@ function CustomizePage() {
 }
 
 function SettingsPage() {
+  const [cloudStatus, setCloudStatus] = useState<CloudAuthStatus | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    window.vac.cloud.getStatus().then(setCloudStatus).catch((error) => {
+      setCloudStatus({
+        configured: false,
+        signedIn: false,
+        userId: null,
+        email: null,
+        detail: error instanceof Error ? error.message : 'Cloud status unavailable'
+      });
+    });
+  }, []);
+
+  function runAuth(mode: 'sign-up' | 'sign-in') {
+    setSyncMessage('');
+    startTransition(() => {
+      const request = mode === 'sign-up' ? window.vac.cloud.signUp({ email, password }) : window.vac.cloud.signIn({ email, password });
+      request
+        .then((result) => {
+          setCloudStatus(result.status);
+          setSyncMessage(result.status.detail);
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Cloud auth failed');
+        });
+    });
+  }
+
+  function signOut() {
+    startTransition(() => {
+      window.vac.cloud
+        .signOut()
+        .then((result) => {
+          setCloudStatus(result.status);
+          setSyncMessage(result.status.detail);
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Sign out failed');
+        });
+    });
+  }
+
+  function syncNow() {
+    startTransition(() => {
+      window.vac.cloud
+        .syncNow()
+        .then((result) => {
+          setSyncMessage(`${result.detail}: ${result.conversationCount} conversations`);
+        })
+        .catch((error) => {
+          setSyncMessage(error instanceof Error ? error.message : 'Cloud sync failed');
+        });
+    });
+  }
+
   return (
     <Page title="Settings" kicker="Provider and runtime visibility">
-      <CardList items={['Ollama connectivity is checked at send time', 'Supabase sync remains available for a later slice', 'Packaging is already verified']} />
+      <section className="settings-grid">
+        <div className="panel form-stack">
+          <div>
+            <h3>Cloud sync</h3>
+            <p className="inline-note">{cloudStatus?.detail ?? 'Checking Supabase configuration...'}</p>
+          </div>
+          <label>
+            Email
+            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
+          </label>
+          <label>
+            Password
+            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
+          </label>
+          <div className="form-actions wrap">
+            <button className="primary-button" type="button" onClick={() => runAuth('sign-up')} disabled={isPending}>
+              Sign up
+            </button>
+            <button className="primary-button secondary" type="button" onClick={() => runAuth('sign-in')} disabled={isPending}>
+              Sign in
+            </button>
+            <button className="primary-button secondary" type="button" onClick={signOut} disabled={isPending || !cloudStatus?.signedIn}>
+              Sign out
+            </button>
+          </div>
+          <button className="primary-button" type="button" onClick={syncNow} disabled={isPending || !cloudStatus?.signedIn}>
+            Sync profile now
+          </button>
+          {syncMessage ? <p className="inline-note">{syncMessage}</p> : null}
+        </div>
+        <MetricGrid
+          metrics={[
+            ['Supabase', cloudStatus?.configured ? 'Configured' : 'Missing env'],
+            ['Session', cloudStatus?.signedIn ? 'Signed in' : 'Signed out'],
+            ['Email', cloudStatus?.email ?? 'None'],
+            ['User ID', cloudStatus?.userId ?? 'None']
+          ]}
+        />
+      </section>
     </Page>
   );
 }

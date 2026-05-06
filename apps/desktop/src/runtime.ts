@@ -186,6 +186,13 @@ export class VacRuntime {
       .all(DEFAULT_USER_ID) as StoredConversation[];
   }
 
+  createSyncSnapshot() {
+    return {
+      profile: this.loadProfile(),
+      conversations: this.listConversations()
+    };
+  }
+
   getConversationMessages(conversationId: string): ChatMessage[] {
     return (
       this.db

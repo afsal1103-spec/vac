@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { CloudRuntime } from './cloud-runtime.js';
 import { VacRuntime } from './runtime.js';
 import { type PipelineEvent, VoiceRuntime } from './voice-runtime.js';
 
@@ -10,6 +11,7 @@ const __dirname = dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let runtime: VacRuntime | null = null;
+let cloudRuntime: CloudRuntime | null = null;
 let overlayResetTimer: NodeJS.Timeout | null = null;
 let voiceRuntime: VoiceRuntime | null = null;
 
@@ -229,6 +231,41 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle('vac:cloud-status', () => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.getStatus();
+});
+
+ipcMain.handle('vac:cloud-sign-up', async (_event, payload: { email: string; password: string }) => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.signUp(payload.email, payload.password);
+});
+
+ipcMain.handle('vac:cloud-sign-in', async (_event, payload: { email: string; password: string }) => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.signIn(payload.email, payload.password);
+});
+
+ipcMain.handle('vac:cloud-sign-out', async () => {
+  if (!cloudRuntime) {
+    throw new Error('Cloud runtime is not ready.');
+  }
+  return cloudRuntime.signOut();
+});
+
+ipcMain.handle('vac:cloud-sync-now', async () => {
+  if (!runtime || !cloudRuntime) {
+    throw new Error('VAC cloud sync is not ready.');
+  }
+  return cloudRuntime.syncSnapshot(runtime.createSyncSnapshot());
+});
+
 ipcMain.handle('vac:profile-load', () => runtime?.loadProfile() ?? null);
 
 ipcMain.handle('vac:profile-save', (_event, profile) => {
@@ -282,6 +319,7 @@ ipcMain.handle('vac:chat-send-message', async (_event, payload) => {
 
 app.whenReady().then(async () => {
   runtime = new VacRuntime();
+  cloudRuntime = new CloudRuntime();
   voiceRuntime = new VoiceRuntime((sessionId, event: PipelineEvent) => {
     publishVoiceEvent(sessionId, event);
 

@@ -43,10 +43,14 @@ for (const marker of ['selfDev:', 'vac:self-dev-list-tasks', 'runSandbox', 'depl
   }
 }
 
-for (const marker of ['MVP 12 self-dev execution loop', 'Propose task', 'Approve task', 'Run sandbox', 'Deploy production']) {
+for (const marker of ['Propose task', 'Approve task', 'Run sandbox', 'Deploy production']) {
   if (!appSource.includes(marker)) {
     failures.push(`Projects UI marker missing: ${marker}`);
   }
+}
+
+if (!appSource.includes('MVP 12 self-dev execution loop') && !appSource.includes('MVP 13 persistence and token hardening')) {
+  failures.push('Projects UI marker missing: MVP 12 or MVP 13 self-dev heading');
 }
 
 if (!dtsSource.includes('selfDev:') || !dtsSource.includes('createTask') || !dtsSource.includes('deployTask')) {

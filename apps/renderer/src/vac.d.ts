@@ -226,13 +226,16 @@ declare global {
           id: string;
           title: string;
           rationale: string;
-          status: 'proposed' | 'approved' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
+          status: 'proposed' | 'approved' | 'rejected' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
           summary: string;
           createdAt: string;
           updatedAt: string;
           approver: string | null;
           approvalNote: string;
           approvalTokenHint: string | null;
+          tokenExpiresAt: string | null;
+          rejectedReason: string;
+          revision: number;
           lastResult: string;
           proposal: {
             id: string;
@@ -250,143 +253,12 @@ declare global {
           message: string;
           createdAt: string;
         }>>;
-        createTask(payload: {
-          title: string;
-          rationale: string;
-          files: Array<{ path: string; before?: string; after: string }>;
-        }): Promise<{
-          id: string;
-          title: string;
-          rationale: string;
-          status: 'proposed' | 'approved' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
-          summary: string;
-          createdAt: string;
-          updatedAt: string;
-          approver: string | null;
-          approvalNote: string;
-          approvalTokenHint: string | null;
-          lastResult: string;
-          proposal: {
-            id: string;
-            title: string;
-            rationale: string;
-            createdAt: string;
-            files: Array<{ path: string; before: string; after: string }>;
-          };
-        }>;
-        approveTask(payload: {
-          taskId: string;
-          approver: string;
-          note?: string;
-        }): Promise<{
-          id: string;
-          title: string;
-          rationale: string;
-          status: 'proposed' | 'approved' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
-          summary: string;
-          createdAt: string;
-          updatedAt: string;
-          approver: string | null;
-          approvalNote: string;
-          approvalTokenHint: string | null;
-          lastResult: string;
-          proposal: {
-            id: string;
-            title: string;
-            rationale: string;
-            createdAt: string;
-            files: Array<{ path: string; before: string; after: string }>;
-          };
-        }>;
-        runSandbox(taskId: string): Promise<{
-          task: {
-            id: string;
-            title: string;
-            rationale: string;
-            status: 'proposed' | 'approved' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
-            summary: string;
-            createdAt: string;
-            updatedAt: string;
-            approver: string | null;
-            approvalNote: string;
-            approvalTokenHint: string | null;
-            lastResult: string;
-            proposal: {
-              id: string;
-              title: string;
-              rationale: string;
-              createdAt: string;
-              files: Array<{ path: string; before: string; after: string }>;
-            };
-          };
-          sandbox: {
-            proposalId: string;
-            passed: boolean;
-            output: string;
-            ranAt: string;
-          };
-        }>;
-        deployTask(payload: {
-          taskId: string;
-          target: 'sandbox' | 'production';
-          approvalToken?: string;
-        }): Promise<{
-          task: {
-            id: string;
-            title: string;
-            rationale: string;
-            status: 'proposed' | 'approved' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
-            summary: string;
-            createdAt: string;
-            updatedAt: string;
-            approver: string | null;
-            approvalNote: string;
-            approvalTokenHint: string | null;
-            lastResult: string;
-            proposal: {
-              id: string;
-              title: string;
-              rationale: string;
-              createdAt: string;
-              files: Array<{ path: string; before: string; after: string }>;
-            };
-          };
-          result: {
-            proposalId: string;
-            applied: boolean;
-            message: string;
-          };
-        }>;
-        onUpdate(handler: (payload: {
-          tasks: Array<{
-            id: string;
-            title: string;
-            rationale: string;
-            status: 'proposed' | 'approved' | 'sandbox_passed' | 'sandbox_failed' | 'deployed_sandbox' | 'deployed_production';
-            summary: string;
-            createdAt: string;
-            updatedAt: string;
-            approver: string | null;
-            approvalNote: string;
-            approvalTokenHint: string | null;
-            lastResult: string;
-            proposal: {
-              id: string;
-              title: string;
-              rationale: string;
-              createdAt: string;
-              files: Array<{ path: string; before: string; after: string }>;
-            };
-          }>;
-          runs: Array<{
-            id: string;
-            taskId: string;
-            kind: 'sandbox' | 'deploy_sandbox' | 'deploy_production';
-            status: 'passed' | 'failed';
-            message: string;
-            createdAt: string;
-          }>;
-        }) => void): () => void;
+        createTask(payload: { title: string; rationale: string; files: Array<{ path: string; before?: string; after: string }> }): Promise<any>;
+        approveTask(payload: { taskId: string; approver: string; note?: string }): Promise<{ task: any; approvalToken: string }>;
+        rejectTask(payload: { taskId: string; reason?: string }): Promise<any>;
+        runSandbox(taskId: string): Promise<{ task: any; sandbox: { proposalId: string; passed: boolean; output: string; ranAt: string } }>;
+        deployTask(payload: { taskId: string; target: 'sandbox' | 'production'; approvalToken?: string }): Promise<{ task: any; result: { proposalId: string; applied: boolean; message: string } }>;
+        onUpdate(handler: (payload: { tasks: any[]; runs: any[] }) => void): () => void;
       };
       overlay: {
         getState(): Promise<{
@@ -550,3 +422,4 @@ declare global {
     };
   }
 }
+

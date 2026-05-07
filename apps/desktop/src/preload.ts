@@ -150,6 +150,7 @@ type SelfImprovementStatus = {
 type SelfDevTaskStatus =
   | 'proposed'
   | 'approved'
+  | 'rejected'
   | 'sandbox_passed'
   | 'sandbox_failed'
   | 'deployed_sandbox'
@@ -166,6 +167,9 @@ type SelfDevTask = {
   approver: string | null;
   approvalNote: string;
   approvalTokenHint: string | null;
+  tokenExpiresAt: string | null;
+  rejectedReason: string;
+  revision: number;
   lastResult: string;
   proposal: {
     id: string;
@@ -250,7 +254,9 @@ const vacApi = {
     createTask: (payload: { title: string; rationale: string; files: Array<{ path: string; before?: string; after: string }> }) =>
       ipcRenderer.invoke('vac:self-dev-create-task', payload) as Promise<SelfDevTask>,
     approveTask: (payload: { taskId: string; approver: string; note?: string }) =>
-      ipcRenderer.invoke('vac:self-dev-approve-task', payload) as Promise<SelfDevTask>,
+      ipcRenderer.invoke('vac:self-dev-approve-task', payload) as Promise<{ task: SelfDevTask; approvalToken: string }>,
+    rejectTask: (payload: { taskId: string; reason?: string }) =>
+      ipcRenderer.invoke('vac:self-dev-reject-task', payload) as Promise<SelfDevTask>,
     runSandbox: (taskId: string) =>
       ipcRenderer.invoke('vac:self-dev-run-sandbox', taskId) as Promise<{
         task: SelfDevTask;

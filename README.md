@@ -54,6 +54,7 @@ pnpm test
 - [x] MVP 10: Offline file-agent grants, local file search, and chat file-context injection
 - [x] MVP 11: Self-improvement telemetry loop, adaptive personality patching, and scheduler controls
 - [x] MVP 12: Self-dev task execution loop with approval gate, sandbox run, and deploy actions
+- [x] MVP 13: Persistent self-dev history, secure expiring approval tokens, and reject workflow
 
 ## Current Verification
 
@@ -102,3 +103,5 @@ MVP 10 is verified by `scripts/verify-mvp10.mjs` plus the standard build and pac
 MVP 11 is verified by `scripts/verify-mvp11.mjs` plus the standard build and packaging pipeline. It checks runtime telemetry capture for repeated questions/corrections/failures, self-improvement run persistence, desktop scheduler IPC controls, preload/renderer bridge APIs, and Settings controls for run-now, pause/resume, interval, and run history.
 
 MVP 12 is verified by `scripts/verify-mvp12.mjs` plus the standard build and packaging pipeline. It checks desktop self-dev engine orchestration, IPC endpoints for propose/approve/sandbox/deploy, preload and renderer bridge coverage, Projects page workflow controls, and workspace dependency wiring for `@vac/self-dev`.
+
+MVP 13 is verified by `scripts/verify-mvp13.mjs` plus the standard build and packaging pipeline. It checks persisted self-dev state across app restarts, expiring one-time production token handling, reject-task IPC flow, preload/renderer type coverage for new task metadata, and upgraded Projects controls for filtering and safer approval handling.

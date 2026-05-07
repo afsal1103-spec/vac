@@ -139,6 +139,7 @@ type SelfImprovementStatus = {
 type SelfDevTaskStatus =
   | 'proposed'
   | 'approved'
+  | 'rejected'
   | 'sandbox_passed'
   | 'sandbox_failed'
   | 'deployed_sandbox'
@@ -155,6 +156,9 @@ type SelfDevTask = {
   approver: string | null;
   approvalNote: string;
   approvalTokenHint: string | null;
+  tokenExpiresAt: string | null;
+  rejectedReason: string;
+  revision: number;
   lastResult: string;
   proposal: {
     id: string;
@@ -711,6 +715,8 @@ function ProjectsPage() {
   const [afterContent, setAfterContent] = useState('');
   const [approver, setApprover] = useState('Local user');
   const [approvalNote, setApprovalNote] = useState('Approved for sandbox execution.');
+  const [rejectReason, setRejectReason] = useState('Needs revision before execution.');
+  const [statusFilter, setStatusFilter] = useState<'all' | SelfDevTaskStatus>('all');
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [deployToken, setDeployToken] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
@@ -723,7 +729,7 @@ function ProjectsPage() {
         setRuns(loadedRuns);
         if (loadedTasks[0]) {
           setSelectedTaskId(loadedTasks[0].id);
-          setDeployToken(loadedTasks[0].approvalTokenHint ?? '');
+          setDeployToken('');
         }
       })
       .catch(() => {
@@ -736,7 +742,7 @@ function ProjectsPage() {
       setRuns(payload.runs);
       if (payload.tasks.length > 0 && !payload.tasks.some((task) => task.id === selectedTaskId)) {
         setSelectedTaskId(payload.tasks[0].id);
-        setDeployToken(payload.tasks[0].approvalTokenHint ?? '');
+        setDeployToken('');
       }
     });
 
@@ -744,6 +750,15 @@ function ProjectsPage() {
   }, [selectedTaskId]);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const filteredTasks = statusFilter === 'all' ? tasks : tasks.filter((task) => task.status === statusFilter);
+
+  function estimateDiff(file: { before: string; after: string }) {
+    const beforeLines = file.before.split(/\r?\n/);
+    const afterLines = file.after.split(/\r?\n/);
+    const added = Math.max(0, afterLines.length - beforeLines.length);
+    const removed = Math.max(0, beforeLines.length - afterLines.length);
+    return { added, removed };
+  }
 
   function createTask() {
     if (!title.trim() || !filePath.trim() || !afterContent.trim()) {
@@ -764,7 +779,7 @@ function ProjectsPage() {
           setRationale('');
           setAfterContent('');
           setSelectedTaskId(task.id);
-          setDeployToken(task.approvalTokenHint ?? '');
+          setDeployToken('');
           setStatusMessage(`Task ${task.id} proposed.`);
         })
         .catch((error) => {
@@ -787,12 +802,37 @@ function ProjectsPage() {
           approver: approver || 'Local user',
           note: approvalNote
         })
-        .then((task) => {
-          setDeployToken(task.approvalTokenHint ?? '');
-          setStatusMessage(`Task approved. Token hint ready for production deploy.`);
+        .then((result) => {
+          setDeployToken(result.approvalToken);
+          setStatusMessage(
+            `Task approved. One-time token issued (copy now). Expires ${result.task.tokenExpiresAt ? new Date(result.task.tokenExpiresAt).toLocaleTimeString() : 'soon'}.`
+          );
         })
         .catch((error) => {
           setStatusMessage(error instanceof Error ? error.message : 'Unable to approve task');
+        });
+    });
+  }
+
+  function rejectSelectedTask() {
+    if (!selectedTask) {
+      setStatusMessage('Select a task first.');
+      return;
+    }
+
+    setStatusMessage('');
+    startTransition(() => {
+      window.vac.selfDev
+        .rejectTask({
+          taskId: selectedTask.id,
+          reason: rejectReason
+        })
+        .then((task) => {
+          setDeployToken('');
+          setStatusMessage(`Task rejected: ${task.rejectedReason}`);
+        })
+        .catch((error) => {
+          setStatusMessage(error instanceof Error ? error.message : 'Unable to reject task');
         });
     });
   }
@@ -840,7 +880,7 @@ function ProjectsPage() {
   }
 
   return (
-    <Page title="Projects" kicker="MVP 12 self-dev execution loop">
+    <Page title="Projects" kicker="MVP 13 persistence and token hardening">
       <section className="settings-grid">
         <div className="panel form-stack">
           <div>
@@ -882,12 +922,25 @@ function ProjectsPage() {
                 setDeployToken(task?.approvalTokenHint ?? '');
               }}
             >
-              <option value="">Select task</option>
-              {tasks.map((task) => (
+            <option value="">Select task</option>
+              {filteredTasks.map((task) => (
                 <option key={task.id} value={task.id}>
                   {task.title} ({task.status})
                 </option>
               ))}
+            </select>
+          </label>
+          <label>
+            Status filter
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | SelfDevTaskStatus)}>
+              <option value="all">All</option>
+              <option value="proposed">Proposed</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="sandbox_passed">Sandbox passed</option>
+              <option value="sandbox_failed">Sandbox failed</option>
+              <option value="deployed_sandbox">Sandbox deployed</option>
+              <option value="deployed_production">Production deployed</option>
             </select>
           </label>
           <label>
@@ -907,8 +960,15 @@ function ProjectsPage() {
             </button>
           </div>
           <label>
+            Reject reason
+            <input value={rejectReason} onChange={(event) => setRejectReason(event.target.value)} />
+          </label>
+          <button className="primary-button secondary" type="button" onClick={rejectSelectedTask} disabled={isPending || !selectedTask}>
+            Reject task
+          </button>
+          <label>
             Production approval token
-            <input value={deployToken} onChange={(event) => setDeployToken(event.target.value)} placeholder="proposal_x:approved" />
+            <input value={deployToken} onChange={(event) => setDeployToken(event.target.value)} placeholder="approve_xxx..." />
           </label>
           <div className="form-actions wrap">
             <button
@@ -934,6 +994,12 @@ function ProjectsPage() {
               <div>
                 <strong>{selectedTask.title}</strong>
                 <p className="inline-note">{selectedTask.summary}</p>
+                <p className="inline-note">Revision {selectedTask.revision}</p>
+                <p className="inline-note">
+                  Token: {selectedTask.approvalTokenHint ?? 'none'}{' '}
+                  {selectedTask.tokenExpiresAt ? `(expires ${new Date(selectedTask.tokenExpiresAt).toLocaleString()})` : ''}
+                </p>
+                {selectedTask.rejectedReason ? <p className="inline-note">Rejected reason: {selectedTask.rejectedReason}</p> : null}
                 <p className="inline-note">{selectedTask.lastResult}</p>
               </div>
             </div>
@@ -945,16 +1011,25 @@ function ProjectsPage() {
             <p className="inline-note">Structured run outcomes for sandbox and deploy actions.</p>
           </div>
           <div className="vault-list">
-            {tasks.length === 0 ? (
+            {filteredTasks.length === 0 ? (
               <p className="inline-note">No self-dev tasks yet.</p>
             ) : (
-              tasks.map((task) => (
+              filteredTasks.map((task) => (
                 <div key={task.id} className="vault-row">
                   <div>
                     <strong>
                       {task.title} ({task.status})
                     </strong>
                     <p className="inline-note">{new Date(task.updatedAt).toLocaleString()}</p>
+                    <p className="inline-note">
+                      Token: {task.approvalTokenHint ?? 'none'}
+                      {task.tokenExpiresAt ? ` | expires ${new Date(task.tokenExpiresAt).toLocaleTimeString()}` : ''}
+                    </p>
+                    {task.proposal.files[0] ? (
+                      <p className="inline-note">
+                        Diff estimate +{estimateDiff(task.proposal.files[0]).added} / -{estimateDiff(task.proposal.files[0]).removed}
+                      </p>
+                    ) : null}
                     <p className="inline-note">{task.lastResult}</p>
                   </div>
                   <span className="inline-note">{task.proposal.files.length} files</span>
@@ -985,7 +1060,8 @@ function ProjectsPage() {
             ['Self-dev tasks', String(tasks.length)],
             ['Execution runs', String(runs.length)],
             ['Selected status', selectedTask?.status ?? 'None'],
-            ['Approval token', selectedTask?.approvalTokenHint ? 'Ready' : 'Missing']
+            ['Approval token', selectedTask?.approvalTokenHint ? 'Issued' : 'Missing'],
+            ['Persistence', 'Task history on disk']
           ]}
         />
       </section>

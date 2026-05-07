@@ -136,6 +136,44 @@ type SelfImprovementStatus = {
   nextRunAt: string | null;
 };
 
+type SelfDevTaskStatus =
+  | 'proposed'
+  | 'approved'
+  | 'sandbox_passed'
+  | 'sandbox_failed'
+  | 'deployed_sandbox'
+  | 'deployed_production';
+
+type SelfDevTask = {
+  id: string;
+  title: string;
+  rationale: string;
+  status: SelfDevTaskStatus;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  approver: string | null;
+  approvalNote: string;
+  approvalTokenHint: string | null;
+  lastResult: string;
+  proposal: {
+    id: string;
+    title: string;
+    rationale: string;
+    createdAt: string;
+    files: Array<{ path: string; before: string; after: string }>;
+  };
+};
+
+type SelfDevRun = {
+  id: string;
+  taskId: string;
+  kind: 'sandbox' | 'deploy_sandbox' | 'deploy_production';
+  status: 'passed' | 'failed';
+  message: string;
+  createdAt: string;
+};
+
 type OnboardingDraft = {
   userName: string;
   assistantName: string;
@@ -665,9 +703,292 @@ function ChatPage() {
 }
 
 function ProjectsPage() {
+  const [tasks, setTasks] = useState<SelfDevTask[]>([]);
+  const [runs, setRuns] = useState<SelfDevRun[]>([]);
+  const [title, setTitle] = useState('');
+  const [rationale, setRationale] = useState('');
+  const [filePath, setFilePath] = useState('apps/renderer/src/App.tsx');
+  const [afterContent, setAfterContent] = useState('');
+  const [approver, setApprover] = useState('Local user');
+  const [approvalNote, setApprovalNote] = useState('Approved for sandbox execution.');
+  const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [deployToken, setDeployToken] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    void Promise.all([window.vac.selfDev.listTasks(), window.vac.selfDev.listRuns()])
+      .then(([loadedTasks, loadedRuns]) => {
+        setTasks(loadedTasks);
+        setRuns(loadedRuns);
+        if (loadedTasks[0]) {
+          setSelectedTaskId(loadedTasks[0].id);
+          setDeployToken(loadedTasks[0].approvalTokenHint ?? '');
+        }
+      })
+      .catch(() => {
+        setTasks([]);
+        setRuns([]);
+      });
+
+    const unsubscribe = window.vac.selfDev.onUpdate((payload) => {
+      setTasks(payload.tasks);
+      setRuns(payload.runs);
+      if (payload.tasks.length > 0 && !payload.tasks.some((task) => task.id === selectedTaskId)) {
+        setSelectedTaskId(payload.tasks[0].id);
+        setDeployToken(payload.tasks[0].approvalTokenHint ?? '');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedTaskId]);
+
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+
+  function createTask() {
+    if (!title.trim() || !filePath.trim() || !afterContent.trim()) {
+      setStatusMessage('Title, file path, and proposed content are required.');
+      return;
+    }
+
+    setStatusMessage('');
+    startTransition(() => {
+      window.vac.selfDev
+        .createTask({
+          title,
+          rationale: rationale || 'No rationale provided.',
+          files: [{ path: filePath, after: afterContent }]
+        })
+        .then((task) => {
+          setTitle('');
+          setRationale('');
+          setAfterContent('');
+          setSelectedTaskId(task.id);
+          setDeployToken(task.approvalTokenHint ?? '');
+          setStatusMessage(`Task ${task.id} proposed.`);
+        })
+        .catch((error) => {
+          setStatusMessage(error instanceof Error ? error.message : 'Unable to create task');
+        });
+    });
+  }
+
+  function approveSelectedTask() {
+    if (!selectedTask) {
+      setStatusMessage('Select a task first.');
+      return;
+    }
+
+    setStatusMessage('');
+    startTransition(() => {
+      window.vac.selfDev
+        .approveTask({
+          taskId: selectedTask.id,
+          approver: approver || 'Local user',
+          note: approvalNote
+        })
+        .then((task) => {
+          setDeployToken(task.approvalTokenHint ?? '');
+          setStatusMessage(`Task approved. Token hint ready for production deploy.`);
+        })
+        .catch((error) => {
+          setStatusMessage(error instanceof Error ? error.message : 'Unable to approve task');
+        });
+    });
+  }
+
+  function runSandboxForTask() {
+    if (!selectedTask) {
+      setStatusMessage('Select a task first.');
+      return;
+    }
+
+    setStatusMessage('');
+    startTransition(() => {
+      window.vac.selfDev
+        .runSandbox(selectedTask.id)
+        .then((result) => {
+          setStatusMessage(`Sandbox: ${result.sandbox.output}`);
+        })
+        .catch((error) => {
+          setStatusMessage(error instanceof Error ? error.message : 'Sandbox run failed');
+        });
+    });
+  }
+
+  function deploySelectedTask(target: 'sandbox' | 'production') {
+    if (!selectedTask) {
+      setStatusMessage('Select a task first.');
+      return;
+    }
+
+    setStatusMessage('');
+    startTransition(() => {
+      window.vac.selfDev
+        .deployTask({
+          taskId: selectedTask.id,
+          target,
+          approvalToken: target === 'production' ? deployToken : undefined
+        })
+        .then((result) => {
+          setStatusMessage(result.result.message);
+        })
+        .catch((error) => {
+          setStatusMessage(error instanceof Error ? error.message : `Unable to deploy to ${target}`);
+        });
+    });
+  }
+
   return (
-    <Page title="Projects" kicker="Reserved for the next delivery slice">
-      <CardList items={['Runtime integrations', 'Voice sidecar work', 'Avatar sync work']} />
+    <Page title="Projects" kicker="MVP 12 self-dev execution loop">
+      <section className="settings-grid">
+        <div className="panel form-stack">
+          <div>
+            <h3>Create task proposal</h3>
+            <p className="inline-note">Propose a change set that must be approved before sandbox testing and deployment.</p>
+          </div>
+          <label>
+            Title
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Add task export endpoint" />
+          </label>
+          <label>
+            Rationale
+            <textarea value={rationale} onChange={(event) => setRationale(event.target.value)} rows={3} />
+          </label>
+          <label>
+            Target file
+            <input value={filePath} onChange={(event) => setFilePath(event.target.value)} placeholder="apps/desktop/src/main.ts" />
+          </label>
+          <label>
+            Proposed content snippet
+            <textarea value={afterContent} onChange={(event) => setAfterContent(event.target.value)} rows={6} />
+          </label>
+          <button className="primary-button" type="button" onClick={createTask} disabled={isPending}>
+            Propose task
+          </button>
+        </div>
+        <div className="panel form-stack">
+          <div>
+            <h3>Approval and execution</h3>
+            <p className="inline-note">Approve, run sandbox checks, then deploy to sandbox or production with token gate.</p>
+          </div>
+          <label>
+            Select task
+            <select
+              value={selectedTaskId}
+              onChange={(event) => {
+                setSelectedTaskId(event.target.value);
+                const task = tasks.find((item) => item.id === event.target.value);
+                setDeployToken(task?.approvalTokenHint ?? '');
+              }}
+            >
+              <option value="">Select task</option>
+              {tasks.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.title} ({task.status})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Approver
+            <input value={approver} onChange={(event) => setApprover(event.target.value)} />
+          </label>
+          <label>
+            Approval note
+            <input value={approvalNote} onChange={(event) => setApprovalNote(event.target.value)} />
+          </label>
+          <div className="form-actions wrap">
+            <button className="primary-button" type="button" onClick={approveSelectedTask} disabled={isPending || !selectedTask}>
+              Approve task
+            </button>
+            <button className="primary-button secondary" type="button" onClick={runSandboxForTask} disabled={isPending || !selectedTask}>
+              Run sandbox
+            </button>
+          </div>
+          <label>
+            Production approval token
+            <input value={deployToken} onChange={(event) => setDeployToken(event.target.value)} placeholder="proposal_x:approved" />
+          </label>
+          <div className="form-actions wrap">
+            <button
+              className="primary-button secondary"
+              type="button"
+              onClick={() => deploySelectedTask('sandbox')}
+              disabled={isPending || !selectedTask}
+            >
+              Deploy sandbox
+            </button>
+            <button
+              className="primary-button secondary"
+              type="button"
+              onClick={() => deploySelectedTask('production')}
+              disabled={isPending || !selectedTask}
+            >
+              Deploy production
+            </button>
+          </div>
+          {statusMessage ? <p className="inline-note">{statusMessage}</p> : null}
+          {selectedTask ? (
+            <div className="vault-row">
+              <div>
+                <strong>{selectedTask.title}</strong>
+                <p className="inline-note">{selectedTask.summary}</p>
+                <p className="inline-note">{selectedTask.lastResult}</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="panel form-stack">
+          <div>
+            <h3>Task history</h3>
+            <p className="inline-note">Structured run outcomes for sandbox and deploy actions.</p>
+          </div>
+          <div className="vault-list">
+            {tasks.length === 0 ? (
+              <p className="inline-note">No self-dev tasks yet.</p>
+            ) : (
+              tasks.map((task) => (
+                <div key={task.id} className="vault-row">
+                  <div>
+                    <strong>
+                      {task.title} ({task.status})
+                    </strong>
+                    <p className="inline-note">{new Date(task.updatedAt).toLocaleString()}</p>
+                    <p className="inline-note">{task.lastResult}</p>
+                  </div>
+                  <span className="inline-note">{task.proposal.files.length} files</span>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="vault-list">
+            {runs.length === 0 ? (
+              <p className="inline-note">No execution runs yet.</p>
+            ) : (
+              runs.map((run) => (
+                <div key={run.id} className="vault-row">
+                  <div>
+                    <strong>
+                      {run.kind} - {run.status}
+                    </strong>
+                    <p className="inline-note">{run.message}</p>
+                  </div>
+                  <span className="inline-note">{new Date(run.createdAt).toLocaleString()}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        <MetricGrid
+          metrics={[
+            ['Self-dev tasks', String(tasks.length)],
+            ['Execution runs', String(runs.length)],
+            ['Selected status', selectedTask?.status ?? 'None'],
+            ['Approval token', selectedTask?.approvalTokenHint ? 'Ready' : 'Missing']
+          ]}
+        />
+      </section>
     </Page>
   );
 }

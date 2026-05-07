@@ -1,9 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { CloudRuntime } from './cloud-runtime.js';
 import { VacRuntime } from './runtime.js';
 import { type PipelineEvent, VoiceRuntime } from './voice-runtime.js';
+import { SelfDevEngine, summarizeProposal, type ChangeProposal } from '@vac/self-dev';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,6 +18,42 @@ let overlayResetTimer: NodeJS.Timeout | null = null;
 let voiceRuntime: VoiceRuntime | null = null;
 let selfImprovementTimer: NodeJS.Timeout | null = null;
 let selfImprovementNextRunAt: string | null = null;
+let selfDevEngine: SelfDevEngine | null = null;
+
+type SelfDevTaskStatus =
+  | 'proposed'
+  | 'approved'
+  | 'sandbox_passed'
+  | 'sandbox_failed'
+  | 'deployed_sandbox'
+  | 'deployed_production';
+
+type SelfDevTask = {
+  id: string;
+  title: string;
+  rationale: string;
+  status: SelfDevTaskStatus;
+  proposal: ChangeProposal;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  approver: string | null;
+  approvalNote: string;
+  approvalTokenHint: string | null;
+  lastResult: string;
+};
+
+type SelfDevRun = {
+  id: string;
+  taskId: string;
+  kind: 'sandbox' | 'deploy_sandbox' | 'deploy_production';
+  status: 'passed' | 'failed';
+  message: string;
+  createdAt: string;
+};
+
+const selfDevTasks = new Map<string, SelfDevTask>();
+const selfDevRuns: SelfDevRun[] = [];
 
 type OverlayState = {
   assistantName: string;
@@ -130,9 +168,40 @@ function publishSelfImprovementStatus() {
   mainWindow?.webContents.send('vac:self-improvement-status-update', status);
 }
 
+function publishSelfDevUpdate() {
+  mainWindow?.webContents.send('vac:self-dev-update', {
+    tasks: listSelfDevTasks(),
+    runs: listSelfDevRuns()
+  });
+}
+
 function setOverlayState(update: Partial<OverlayState>) {
   Object.assign(overlayState, update, { updatedAt: new Date().toISOString() });
   publishOverlayState();
+}
+
+function requireSelfDevEngine(): SelfDevEngine {
+  if (!selfDevEngine) {
+    throw new Error('Self-dev engine is not ready.');
+  }
+  return selfDevEngine;
+}
+
+function listSelfDevTasks(): SelfDevTask[] {
+  return Array.from(selfDevTasks.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function listSelfDevRuns(taskId?: string): SelfDevRun[] {
+  const filtered = taskId ? selfDevRuns.filter((run) => run.taskId === taskId) : selfDevRuns;
+  return [...filtered].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 40);
+}
+
+function getSelfDevTask(taskId: string): SelfDevTask {
+  const task = selfDevTasks.get(taskId);
+  if (!task) {
+    throw new Error(`Self-dev task ${taskId} was not found.`);
+  }
+  return task;
 }
 
 function clearSelfImprovementSchedule() {
@@ -425,6 +494,174 @@ ipcMain.handle('vac:self-improvement-list-runs', (_event, limit?: number) => {
   return runtime.listSelfImprovementRuns(limit);
 });
 
+ipcMain.handle('vac:self-dev-list-tasks', () => listSelfDevTasks());
+
+ipcMain.handle('vac:self-dev-list-runs', (_event, taskId?: string) => listSelfDevRuns(taskId));
+
+ipcMain.handle(
+  'vac:self-dev-create-task',
+  (
+    _event,
+    payload: {
+      title: string;
+      rationale: string;
+      files: Array<{ path: string; before?: string; after: string }>;
+    }
+  ) => {
+    const engine = requireSelfDevEngine();
+    const normalizedFiles = payload.files
+      .map((file) => ({
+        path: file.path.trim(),
+        before: file.before ?? '',
+        after: file.after
+      }))
+      .filter((file) => file.path.length > 0 && file.after.trim().length > 0);
+
+    const proposal = engine.propose({
+      title: payload.title.trim() || 'Untitled self-dev task',
+      rationale: payload.rationale.trim() || 'No rationale provided.',
+      files: normalizedFiles
+    });
+
+    const now = new Date().toISOString();
+    const task: SelfDevTask = {
+      id: proposal.id,
+      title: proposal.title,
+      rationale: proposal.rationale,
+      status: 'proposed',
+      proposal,
+      summary: summarizeProposal(proposal),
+      createdAt: now,
+      updatedAt: now,
+      approver: null,
+      approvalNote: '',
+      approvalTokenHint: null,
+      lastResult: 'Proposal created. Awaiting approval.'
+    };
+
+    selfDevTasks.set(task.id, task);
+    publishSelfDevUpdate();
+    return task;
+  }
+);
+
+ipcMain.handle('vac:self-dev-approve-task', (_event, payload: { taskId: string; approver: string; note?: string }) => {
+  const engine = requireSelfDevEngine();
+  const task = getSelfDevTask(payload.taskId);
+
+  const decision = {
+    proposalId: task.proposal.id,
+    approved: true,
+    approver: payload.approver.trim() || 'Local user',
+    decidedAt: new Date().toISOString(),
+    note: payload.note?.trim() || undefined
+  };
+  engine.recordApproval(decision);
+
+  const approvalTokenHint = `${task.proposal.id}:approved`;
+  const updated: SelfDevTask = {
+    ...task,
+    status: 'approved',
+    approver: decision.approver,
+    approvalNote: decision.note ?? '',
+    approvalTokenHint,
+    updatedAt: new Date().toISOString(),
+    lastResult: `Approved by ${decision.approver}.`
+  };
+  selfDevTasks.set(task.id, updated);
+  publishSelfDevUpdate();
+  return updated;
+});
+
+ipcMain.handle('vac:self-dev-run-sandbox', (_event, taskId: string) => {
+  const engine = requireSelfDevEngine();
+  const task = getSelfDevTask(taskId);
+
+  if (task.status !== 'approved' && task.status !== 'sandbox_failed') {
+    throw new Error('Task must be approved before sandbox execution.');
+  }
+
+  const result = engine.testInSandbox(task.proposal);
+  const nextStatus: SelfDevTaskStatus = result.passed ? 'sandbox_passed' : 'sandbox_failed';
+  const updated: SelfDevTask = {
+    ...task,
+    status: nextStatus,
+    updatedAt: new Date().toISOString(),
+    lastResult: result.output
+  };
+  selfDevTasks.set(task.id, updated);
+  selfDevRuns.push({
+    id: randomUUID(),
+    taskId: task.id,
+    kind: 'sandbox',
+    status: result.passed ? 'passed' : 'failed',
+    message: result.output,
+    createdAt: new Date().toISOString()
+  });
+  publishSelfDevUpdate();
+  return { task: updated, sandbox: result };
+});
+
+ipcMain.handle(
+  'vac:self-dev-deploy',
+  (_event, payload: { taskId: string; target: 'sandbox' | 'production'; approvalToken?: string }) => {
+    const engine = requireSelfDevEngine();
+    const task = getSelfDevTask(payload.taskId);
+
+    if (payload.target === 'sandbox') {
+      const applied = engine.deployToSandbox(task.proposal);
+      const updated: SelfDevTask = {
+        ...task,
+        status: 'deployed_sandbox',
+        updatedAt: new Date().toISOString(),
+        lastResult: applied.message
+      };
+      selfDevTasks.set(task.id, updated);
+      selfDevRuns.push({
+        id: randomUUID(),
+        taskId: task.id,
+        kind: 'deploy_sandbox',
+        status: 'passed',
+        message: applied.message,
+        createdAt: new Date().toISOString()
+      });
+      publishSelfDevUpdate();
+      return { task: updated, result: applied };
+    }
+
+    if (!task.approver) {
+      throw new Error('Task must be approved before production deploy.');
+    }
+
+    engine.recordApproval({
+      proposalId: task.proposal.id,
+      approved: true,
+      approver: task.approver,
+      decidedAt: task.updatedAt,
+      note: task.approvalNote || undefined
+    });
+
+    const applied = engine.deployToProduction(task.proposal, payload.approvalToken ?? '');
+    const updated: SelfDevTask = {
+      ...task,
+      status: 'deployed_production',
+      updatedAt: new Date().toISOString(),
+      lastResult: applied.message
+    };
+    selfDevTasks.set(task.id, updated);
+    selfDevRuns.push({
+      id: randomUUID(),
+      taskId: task.id,
+      kind: 'deploy_production',
+      status: 'passed',
+      message: applied.message,
+      createdAt: new Date().toISOString()
+    });
+    publishSelfDevUpdate();
+    return { task: updated, result: applied };
+  }
+);
+
 ipcMain.handle('vac:offline-list-grants', () => {
   if (!runtime) {
     throw new Error('VAC runtime is not ready.');
@@ -528,6 +765,7 @@ ipcMain.handle('vac:chat-send-message', async (_event, payload) => {
 app.whenReady().then(async () => {
   runtime = new VacRuntime();
   cloudRuntime = new CloudRuntime();
+  selfDevEngine = new SelfDevEngine(join(app.getPath('userData'), 'self-dev-sandbox'));
   runtime.attachCloudRuntime(cloudRuntime);
   scheduleSelfImprovement(runtime.loadSelfImprovementConfig());
   voiceRuntime = new VoiceRuntime((sessionId, event: PipelineEvent) => {
@@ -559,6 +797,7 @@ app.whenReady().then(async () => {
   await createOverlayWindow();
   publishOverlayState();
   publishSelfImprovementStatus();
+  publishSelfDevUpdate();
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {

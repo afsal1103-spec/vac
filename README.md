@@ -53,6 +53,7 @@ pnpm test
 - [x] MVP 9: Retrieval memory context injection, summary compaction, and scored relevance visibility
 - [x] MVP 10: Offline file-agent grants, local file search, and chat file-context injection
 - [x] MVP 11: Self-improvement telemetry loop, adaptive personality patching, and scheduler controls
+- [x] MVP 12: Self-dev task execution loop with approval gate, sandbox run, and deploy actions
 
 ## Current Verification
 
@@ -99,3 +100,5 @@ MVP 9 is verified by `scripts/verify-mvp9.mjs` plus the standard build and packa
 MVP 10 is verified by `scripts/verify-mvp10.mjs` plus the standard build and packaging pipeline. It checks offline directory grant persistence, desktop file-agent IPC for list/search/summarize, renderer grant and file-context controls, and runtime injection of user-approved local file context into chat prompts.
 
 MVP 11 is verified by `scripts/verify-mvp11.mjs` plus the standard build and packaging pipeline. It checks runtime telemetry capture for repeated questions/corrections/failures, self-improvement run persistence, desktop scheduler IPC controls, preload/renderer bridge APIs, and Settings controls for run-now, pause/resume, interval, and run history.
+
+MVP 12 is verified by `scripts/verify-mvp12.mjs` plus the standard build and packaging pipeline. It checks desktop self-dev engine orchestration, IPC endpoints for propose/approve/sandbox/deploy, preload and renderer bridge coverage, Projects page workflow controls, and workspace dependency wiring for `@vac/self-dev`.

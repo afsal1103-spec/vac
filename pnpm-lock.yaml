@@ -19,6 +19,9 @@ importers:
       '@vac/offline':
         specifier: workspace:*
         version: link:../../packages/offline
+      '@vac/self-dev':
+        specifier: workspace:*
+        version: link:../../packages/self-dev
       better-sqlite3:
         specifier: ^12.4.1
         version: 12.9.0

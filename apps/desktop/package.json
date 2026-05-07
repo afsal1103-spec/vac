@@ -16,6 +16,7 @@
     "@vac/ai-core": "workspace:*",
     "@vac/memory": "workspace:*",
     "@vac/offline": "workspace:*",
+    "@vac/self-dev": "workspace:*",
     "better-sqlite3": "^12.4.1"
   },
   "devDependencies": {

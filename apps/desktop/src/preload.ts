@@ -147,6 +147,44 @@ type SelfImprovementStatus = {
   nextRunAt: string | null;
 };
 
+type SelfDevTaskStatus =
+  | 'proposed'
+  | 'approved'
+  | 'sandbox_passed'
+  | 'sandbox_failed'
+  | 'deployed_sandbox'
+  | 'deployed_production';
+
+type SelfDevTask = {
+  id: string;
+  title: string;
+  rationale: string;
+  status: SelfDevTaskStatus;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  approver: string | null;
+  approvalNote: string;
+  approvalTokenHint: string | null;
+  lastResult: string;
+  proposal: {
+    id: string;
+    title: string;
+    rationale: string;
+    createdAt: string;
+    files: Array<{ path: string; before: string; after: string }>;
+  };
+};
+
+type SelfDevRun = {
+  id: string;
+  taskId: string;
+  kind: 'sandbox' | 'deploy_sandbox' | 'deploy_production';
+  status: 'passed' | 'failed';
+  message: string;
+  createdAt: string;
+};
+
 const vacApi = {
   shell: {
     getStatus: () => ipcRenderer.invoke('vac:shell-status') as Promise<ShellStatus>,
@@ -203,6 +241,31 @@ const vacApi = {
       ipcRenderer.on('vac:self-improvement-status-update', listener);
       return () => {
         ipcRenderer.removeListener('vac:self-improvement-status-update', listener);
+      };
+    }
+  },
+  selfDev: {
+    listTasks: () => ipcRenderer.invoke('vac:self-dev-list-tasks') as Promise<SelfDevTask[]>,
+    listRuns: (taskId?: string) => ipcRenderer.invoke('vac:self-dev-list-runs', taskId) as Promise<SelfDevRun[]>,
+    createTask: (payload: { title: string; rationale: string; files: Array<{ path: string; before?: string; after: string }> }) =>
+      ipcRenderer.invoke('vac:self-dev-create-task', payload) as Promise<SelfDevTask>,
+    approveTask: (payload: { taskId: string; approver: string; note?: string }) =>
+      ipcRenderer.invoke('vac:self-dev-approve-task', payload) as Promise<SelfDevTask>,
+    runSandbox: (taskId: string) =>
+      ipcRenderer.invoke('vac:self-dev-run-sandbox', taskId) as Promise<{
+        task: SelfDevTask;
+        sandbox: { proposalId: string; passed: boolean; output: string; ranAt: string };
+      }>,
+    deployTask: (payload: { taskId: string; target: 'sandbox' | 'production'; approvalToken?: string }) =>
+      ipcRenderer.invoke('vac:self-dev-deploy', payload) as Promise<{
+        task: SelfDevTask;
+        result: { proposalId: string; applied: boolean; message: string };
+      }>,
+    onUpdate: (handler: (payload: { tasks: SelfDevTask[]; runs: SelfDevRun[] }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { tasks: SelfDevTask[]; runs: SelfDevRun[] }) => handler(payload);
+      ipcRenderer.on('vac:self-dev-update', listener);
+      return () => {
+        ipcRenderer.removeListener('vac:self-dev-update', listener);
       };
     }
   },

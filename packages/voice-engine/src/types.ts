@@ -21,11 +21,22 @@ export type TtsChunk = {
 
 export type VoiceProvider = 'local' | 'deepgram-elevenlabs';
 
+export type VoiceQualityProfile = 'low_latency' | 'balanced' | 'high_quality';
+
 export type VoicePipelineConfig = {
   provider: VoiceProvider;
   language: string;
   voiceId: string;
   enableWordTimestamps: boolean;
+  qualityProfile?: VoiceQualityProfile;
+  inputDeviceId?: string;
+  outputDeviceId?: string;
+  noiseSuppression?: boolean;
+  echoCancellation?: boolean;
+  autoGainControl?: boolean;
+  sttMaxRetries?: number;
+  ttsMaxRetries?: number;
+  fallbackProviders?: VoiceProvider[];
 };
 
 export type PipelineEvent =

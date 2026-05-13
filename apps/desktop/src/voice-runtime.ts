@@ -1,41 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import {
+  VoiceEngineCoordinator,
+  type PipelineEvent,
+  type VoicePipelineConfig,
+  type VoiceProvider,
+  type SttChunk,
+  type TtsChunk
+} from '@vac/voice-engine';
 
-export type VoiceProvider = 'local' | 'deepgram-elevenlabs';
-
-export type VoicePipelineConfig = {
-  provider: VoiceProvider;
-  language: string;
-  voiceId: string;
-  enableWordTimestamps: boolean;
-};
-
-export type SttChunk = {
-  text: string;
-  startMs: number;
-  endMs: number;
-  confidence?: number;
-  isFinal: boolean;
-};
-
-export type LlmChunk = {
-  text: string;
-  isFinal: boolean;
-};
-
-export type TtsChunk = {
-  audioBase64: string;
-  sampleRate: number;
-  format: 'wav' | 'pcm_s16le';
-  text: string;
-  isFinal: boolean;
-};
-
-export type PipelineEvent =
-  | { type: 'stt_chunk'; chunk: SttChunk }
-  | { type: 'llm_chunk'; chunk: LlmChunk }
-  | { type: 'tts_chunk'; chunk: TtsChunk }
-  | { type: 'status'; message: string }
-  | { type: 'error'; message: string };
+export type { VoiceProvider, VoicePipelineConfig, SttChunk, TtsChunk, PipelineEvent };
 
 export type VoiceSession = {
   id: string;
@@ -43,57 +16,44 @@ export type VoiceSession = {
   createdAt: string;
 };
 
-function buildSineWaveWavBase64(seconds: number, sampleRate: number, frequencyHz: number): string {
-  const samples = Math.max(1, Math.floor(seconds * sampleRate));
-  const bytesPerSample = 2;
-  const channelCount = 1;
-  const dataSize = samples * bytesPerSample * channelCount;
-  const buffer = Buffer.alloc(44 + dataSize);
-
-  buffer.write('RIFF', 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write('WAVE', 8);
-  buffer.write('fmt ', 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(channelCount, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * channelCount * bytesPerSample, 28);
-  buffer.writeUInt16LE(channelCount * bytesPerSample, 32);
-  buffer.writeUInt16LE(bytesPerSample * 8, 34);
-  buffer.write('data', 36);
-  buffer.writeUInt32LE(dataSize, 40);
-
-  for (let i = 0; i < samples; i += 1) {
-    const amplitude = Math.sin((2 * Math.PI * frequencyHz * i) / sampleRate) * 0.2;
-    const sample = Math.max(-32767, Math.min(32767, Math.floor(amplitude * 32767)));
-    buffer.writeInt16LE(sample, 44 + i * 2);
-  }
-
-  return buffer.toString('base64');
-}
-
 export class VoiceRuntime {
   private sessions = new Map<string, VoiceSession>();
+  private readonly coordinator = new VoiceEngineCoordinator({
+    retryDelayMs: 120,
+    defaultSttRetries: 2,
+    defaultTtsRetries: 2
+  });
 
-  constructor(private readonly onEvent: (sessionId: string, event: PipelineEvent) => void) {}
+  constructor(private readonly onEvent: (sessionId: string, event: PipelineEvent) => void) {
+    this.coordinator.on('event', (payload: { sessionId: string; event: PipelineEvent }) => {
+      this.onEvent(payload.sessionId, payload.event);
+    });
 
-  startSession(config: VoicePipelineConfig): VoiceSession {
+    this.coordinator.on('status', (payload: { sessionId: string; message: string }) => {
+      this.onEvent(payload.sessionId, { type: 'status', message: payload.message });
+    });
+  }
+
+  async startSession(config: VoicePipelineConfig): Promise<VoiceSession> {
+    const normalizedConfig = this.normalizeConfig(config);
     const session: VoiceSession = {
       id: `voice_${randomUUID()}`,
-      config,
+      config: normalizedConfig,
       createdAt: new Date().toISOString()
     };
+
+    await this.coordinator.createSession(session.id, normalizedConfig);
     this.sessions.set(session.id, session);
     this.emit(session.id, {
       type: 'status',
-      message: `Voice session started (${config.provider}, ${config.voiceId})`
+      message: `Voice session started (${normalizedConfig.provider}, ${normalizedConfig.voiceId}, quality=${normalizedConfig.qualityProfile ?? 'balanced'})`
     });
     return session;
   }
 
-  stopSession(sessionId: string) {
+  async stopSession(sessionId: string): Promise<void> {
     this.requireSession(sessionId);
+    await this.coordinator.stopSession(sessionId);
     this.sessions.delete(sessionId);
     this.emit(sessionId, {
       type: 'status',
@@ -101,37 +61,17 @@ export class VoiceRuntime {
     });
   }
 
-  pushMicAudio(sessionId: string, audioBase64: string): SttChunk[] {
+  async pushMicAudio(sessionId: string, audioBase64: string): Promise<SttChunk[]> {
     this.requireSession(sessionId);
-    if (!audioBase64) return [];
-
-    const chunk: SttChunk = {
-      text: '[mic chunk]',
-      startMs: 0,
-      endMs: 220,
-      confidence: 0.85,
-      isFinal: false
-    };
-    this.emit(sessionId, { type: 'stt_chunk', chunk });
-    return [chunk];
+    if (!audioBase64.trim()) return [];
+    return this.coordinator.pushMicAudio(sessionId, audioBase64);
   }
 
-  synthesizeText(sessionId: string, text: string, isFinal: boolean): TtsChunk[] {
+  async synthesizeText(sessionId: string, text: string, isFinal: boolean): Promise<TtsChunk[]> {
     this.requireSession(sessionId);
     const trimmed = text.trim();
     if (!trimmed) return [];
-
-    this.emit(sessionId, { type: 'llm_chunk', chunk: { text: trimmed, isFinal } });
-    const wavBase64 = buildSineWaveWavBase64(Math.min(1.2, Math.max(0.2, trimmed.length / 80)), 22050, 220);
-    const chunk: TtsChunk = {
-      audioBase64: wavBase64,
-      sampleRate: 22050,
-      format: 'wav',
-      text: trimmed,
-      isFinal
-    };
-    this.emit(sessionId, { type: 'tts_chunk', chunk });
-    return [chunk];
+    return this.coordinator.pushLlmChunk(sessionId, { text: trimmed, isFinal });
   }
 
   private emit(sessionId: string, event: PipelineEvent) {
@@ -144,5 +84,24 @@ export class VoiceRuntime {
       throw new Error(`Voice session ${sessionId} was not found.`);
     }
     return session;
+  }
+
+  private normalizeConfig(config: VoicePipelineConfig): VoicePipelineConfig {
+    const fallbackProviders = config.fallbackProviders?.length
+      ? config.fallbackProviders
+      : config.provider === 'local'
+        ? (['deepgram-elevenlabs'] as VoiceProvider[])
+        : (['local'] as VoiceProvider[]);
+
+    return {
+      ...config,
+      qualityProfile: config.qualityProfile ?? 'balanced',
+      noiseSuppression: config.noiseSuppression ?? true,
+      echoCancellation: config.echoCancellation ?? true,
+      autoGainControl: config.autoGainControl ?? true,
+      sttMaxRetries: config.sttMaxRetries ?? 2,
+      ttsMaxRetries: config.ttsMaxRetries ?? 2,
+      fallbackProviders
+    };
   }
 }

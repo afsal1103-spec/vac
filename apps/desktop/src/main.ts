@@ -405,18 +405,18 @@ ipcMain.handle('vac:set-overlay-interactive', (_event, interactive: boolean) => 
 
 ipcMain.handle('vac:overlay-get-state', () => overlayState);
 
-ipcMain.handle('vac:voice-session-start', (_event, config) => {
+ipcMain.handle('vac:voice-session-start', async (_event, config) => {
   if (!voiceRuntime) {
     throw new Error('Voice runtime is not ready.');
   }
   return voiceRuntime.startSession(config);
 });
 
-ipcMain.handle('vac:voice-session-stop', (_event, sessionId: string) => {
+ipcMain.handle('vac:voice-session-stop', async (_event, sessionId: string) => {
   if (!voiceRuntime) {
     throw new Error('Voice runtime is not ready.');
   }
-  voiceRuntime.stopSession(sessionId);
+  await voiceRuntime.stopSession(sessionId);
   return { stopped: true };
 });
 

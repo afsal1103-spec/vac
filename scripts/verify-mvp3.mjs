@@ -35,10 +35,14 @@ for (const marker of ['startSession', 'pushMicChunk', 'speakText', 'onEvent']) {
   }
 }
 
-for (const marker of ['class VoiceRuntime', 'pushMicAudio', 'synthesizeText', 'tts_chunk']) {
+for (const marker of ['class VoiceRuntime', 'pushMicAudio', 'synthesizeText']) {
   if (!runtimeSource.includes(marker)) {
     failures.push(`Desktop voice runtime marker missing: ${marker}`);
   }
+}
+
+if (!runtimeSource.includes('tts_chunk') && !runtimeSource.includes('pushLlmChunk')) {
+  failures.push('Desktop voice runtime marker missing: tts_chunk emission or pushLlmChunk handoff');
 }
 
 if (failures.length > 0) {

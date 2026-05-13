@@ -9,7 +9,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm --filter @vac/renderer dev",
     "package:desktop": "pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/renderer build && pnpm --filter @vac/desktop build && pnpm --filter @vac/desktop package",
-    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm verify:phase4 && pnpm verify:phase5 && pnpm verify:phase6 && pnpm verify:phase7 && pnpm verify:phase8 && pnpm verify:phase9 && pnpm verify:phase10 && pnpm verify:mvp1 && pnpm verify:mvp2 && pnpm verify:mvp3 && pnpm verify:mvp4 && pnpm verify:mvp5 && pnpm verify:mvp6 && pnpm verify:mvp7 && pnpm verify:mvp8 && pnpm verify:mvp9 && pnpm verify:mvp10 && pnpm verify:mvp11 && pnpm verify:mvp12 && pnpm verify:mvp13 && pnpm verify:mvp14 && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/offline build && pnpm --filter @vac/self-dev build && pnpm --filter @vac/backend build && pnpm --filter @vac/desktop build",
+    "test": "pnpm verify:phase0 && pnpm verify:phase1 && pnpm verify:phase2 && pnpm verify:phase3 && pnpm verify:phase4 && pnpm verify:phase5 && pnpm verify:phase6 && pnpm verify:phase7 && pnpm verify:phase8 && pnpm verify:phase9 && pnpm verify:phase10 && pnpm verify:mvp1 && pnpm verify:mvp2 && pnpm verify:mvp3 && pnpm verify:mvp4 && pnpm verify:mvp5 && pnpm verify:mvp6 && pnpm verify:mvp7 && pnpm verify:mvp8 && pnpm verify:mvp9 && pnpm verify:mvp10 && pnpm verify:mvp11 && pnpm verify:mvp12 && pnpm verify:mvp13 && pnpm verify:mvp14 && pnpm verify:mvp15 && pnpm --filter @vac/renderer build && pnpm --filter @vac/avatar-engine build && pnpm --filter @vac/voice-engine build && pnpm --filter @vac/ai-core build && pnpm --filter @vac/memory build && pnpm --filter @vac/offline build && pnpm --filter @vac/self-dev build && pnpm --filter @vac/backend build && pnpm --filter @vac/desktop build",
     "verify:phase0": "node scripts/verify-phase0.mjs",
     "verify:phase1": "node scripts/verify-phase1.mjs",
     "verify:phase2": "node scripts/verify-phase2.mjs",
@@ -34,7 +34,8 @@
     "verify:mvp11": "node scripts/verify-mvp11.mjs",
     "verify:mvp12": "node scripts/verify-mvp12.mjs",
     "verify:mvp13": "node scripts/verify-mvp13.mjs",
-    "verify:mvp14": "node scripts/verify-mvp14.mjs"
+    "verify:mvp14": "node scripts/verify-mvp14.mjs",
+    "verify:mvp15": "node scripts/verify-mvp15.mjs"
   },
   "engines": {
     "node": ">=22.0.0",

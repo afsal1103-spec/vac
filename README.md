@@ -56,6 +56,7 @@ pnpm test
 - [x] MVP 12: Self-dev task execution loop with approval gate, sandbox run, and deploy actions
 - [x] MVP 13: Persistent self-dev history, secure expiring approval tokens, and reject workflow
 - [x] MVP 14: Voice coordinator retries, provider fallback, and quality/noise pipeline hardening
+- [x] MVP 15: Python voice sidecar process integration with health checks and runtime fallback migration
 
 ## Current Verification
 
@@ -108,3 +109,5 @@ MVP 12 is verified by `scripts/verify-mvp12.mjs` plus the standard build and pac
 MVP 13 is verified by `scripts/verify-mvp13.mjs` plus the standard build and packaging pipeline. It checks persisted self-dev state across app restarts, expiring one-time production token handling, reject-task IPC flow, preload/renderer type coverage for new task metadata, and upgraded Projects controls for filtering and safer approval handling.
 
 MVP 14 is verified by `scripts/verify-mvp14.mjs` plus the standard build and packaging pipeline. It checks enhanced voice pipeline config controls (quality profile, retry and fallback settings), STT/TTS preprocessing hooks, coordinator retry and provider-switch logic, desktop runtime integration with the shared voice coordinator, and desktop dependency wiring for `@vac/voice-engine`.
+
+MVP 15 is verified by `scripts/verify-mvp15.mjs` plus the standard build and packaging pipeline. It checks Python sidecar protocol implementation, desktop sidecar supervision and health ping/pong handling, streamed STT/TTS event routing back to renderer, migration from sidecar sessions to coordinator fallback on failures, and expanded voice-session config options in preload/renderer type bridges.

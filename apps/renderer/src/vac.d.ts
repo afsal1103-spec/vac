@@ -282,6 +282,13 @@ declare global {
           language: string;
           voiceId: string;
           enableWordTimestamps: boolean;
+          qualityProfile?: 'low_latency' | 'balanced' | 'high_quality';
+          noiseSuppression?: boolean;
+          echoCancellation?: boolean;
+          autoGainControl?: boolean;
+          sttMaxRetries?: number;
+          ttsMaxRetries?: number;
+          fallbackProviders?: Array<'local' | 'deepgram-elevenlabs'>;
         }): Promise<{
           id: string;
           config: {
@@ -289,6 +296,13 @@ declare global {
             language: string;
             voiceId: string;
             enableWordTimestamps: boolean;
+            qualityProfile?: 'low_latency' | 'balanced' | 'high_quality';
+            noiseSuppression?: boolean;
+            echoCancellation?: boolean;
+            autoGainControl?: boolean;
+            sttMaxRetries?: number;
+            ttsMaxRetries?: number;
+            fallbackProviders?: Array<'local' | 'deepgram-elevenlabs'>;
           };
           createdAt: string;
         }>;

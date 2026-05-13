@@ -40,6 +40,13 @@ type VoiceSession = {
     language: string;
     voiceId: string;
     enableWordTimestamps: boolean;
+    qualityProfile?: 'low_latency' | 'balanced' | 'high_quality';
+    noiseSuppression?: boolean;
+    echoCancellation?: boolean;
+    autoGainControl?: boolean;
+    sttMaxRetries?: number;
+    ttsMaxRetries?: number;
+    fallbackProviders?: VoiceProvider[];
   };
   createdAt: string;
 };
@@ -286,7 +293,19 @@ const vacApi = {
     }
   },
   voice: {
-    startSession: (config: { provider: VoiceProvider; language: string; voiceId: string; enableWordTimestamps: boolean }) =>
+    startSession: (config: {
+      provider: VoiceProvider;
+      language: string;
+      voiceId: string;
+      enableWordTimestamps: boolean;
+      qualityProfile?: 'low_latency' | 'balanced' | 'high_quality';
+      noiseSuppression?: boolean;
+      echoCancellation?: boolean;
+      autoGainControl?: boolean;
+      sttMaxRetries?: number;
+      ttsMaxRetries?: number;
+      fallbackProviders?: VoiceProvider[];
+    }) =>
       ipcRenderer.invoke('vac:voice-session-start', config) as Promise<VoiceSession>,
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke('vac:voice-session-stop', sessionId) as Promise<{ stopped: boolean }>,

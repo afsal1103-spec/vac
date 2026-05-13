@@ -12,6 +12,10 @@ export class VoiceSidecar extends EventEmitter {
 
     this.child = spawn(command, args, { cwd, stdio: 'pipe' });
 
+    this.child.on('error', (error) => {
+      this.emit('error', error instanceof Error ? error.message : String(error));
+    });
+
     this.child.stdout.on('data', (chunk) => {
       this.buffer += chunk.toString('utf8');
       this.flushLines();
@@ -36,6 +40,10 @@ export class VoiceSidecar extends EventEmitter {
     if (!this.child) return;
     this.child.kill();
     this.child = null;
+  }
+
+  isRunning(): boolean {
+    return this.child !== null;
   }
 
   private flushLines() {

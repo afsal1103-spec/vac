@@ -123,7 +123,8 @@ export class VoiceRuntime {
         this.sidecar.send({
           type: 'push_mic',
           sessionId,
-          audioBase64
+          audioBase64,
+          language: session.config.language
         });
         return [];
       } catch (error) {
@@ -148,7 +149,8 @@ export class VoiceRuntime {
           type: 'speak_text',
           sessionId,
           text: trimmed,
-          isFinal
+          isFinal,
+          voiceId: session.config.voiceId
         });
         return [];
       } catch (error) {
